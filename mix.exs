@@ -1,4 +1,4 @@
-defmodule PepperHttp.MixProject do
+defmodule Pepper.HTTP.MixProject do
   use Mix.Project
 
   def project do
@@ -11,7 +11,10 @@ defmodule PepperHttp.MixProject do
         warnings_as_errors: true,
       ],
       elixirc_paths: elixirc_paths(Mix.env()),
-      deps: deps()
+      deps: deps(),
+      package: package(),
+      source_url: "https://github.com/Tychron/pepper_http",
+      homepage_url: "https://github.com/Tychron/pepper_http",
     ]
   end
 
@@ -45,6 +48,16 @@ defmodule PepperHttp.MixProject do
       # Certificate Store
       {:castore, "~> 0.1"},
       {:bypass, "~> 1.0 or ~> 2.1", [only: :test]},
+    ]
+  end
+
+  defp package do
+    [
+      maintainers: ["Tychron Developers <developers@tychron.co>"],
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => "https://github.com/Tychron/pepper_http"
+      },
     ]
   end
 end
