@@ -125,6 +125,9 @@ defmodule Pepper.HTTP.ContentClient do
             {"authorization", "Bearer #{password}"}
             | headers
           ]
+
+        _ ->
+          headers
       end
 
     {headers, options}
