@@ -13,6 +13,21 @@ defmodule Pepper.HTTP.ContentClientTest do
   @response_body_types [:none, :json, :text, :xml, :csv, :other]
 
   setup tags do
+    tags =
+      case tags[:with_connection_pool] do
+        true ->
+          {:ok, pid} =
+            start_supervised({Pepper.HTTP.ConnectionManager.Pooled, [
+              [pool_size: 10],
+              []
+            ]})
+
+          Map.put(tags, :connection_pool_pid, pid)
+
+        false ->
+          tags
+      end
+
     protocol = String.to_existing_atom(Map.fetch!(tags, :protocol))
 
     client_options = [
@@ -21,125 +36,139 @@ defmodule Pepper.HTTP.ContentClientTest do
       ]
     ]
 
+    client_options =
+      case tags[:connection_pool_pid] do
+        nil ->
+          client_options
+
+        pid ->
+          Keyword.merge(client_options, [
+            connection_manager: :pooled,
+            connection_manager_id: pid,
+          ])
+      end
+
     Map.put(tags, :client_options, client_options)
   end
 
-  for protocol <- [:http1, :http2] do
-    for {method, method_string} <- [{:get, "GET"}, {:delete, "DELETE"}] do
-      describe "request/6 [protocol:#{protocol}, method:#{method}]" do
-        @describetag protocol: to_string(protocol), method: to_string(method)
+  for with_connection_pool <- [true, false] do
+    for protocol <- [:http1, :http2] do
+      for {method, method_string} <- [{:get, "GET"}, {:delete, "DELETE"}] do
+        describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}]" do
+          @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method)
 
-        test "can issue a simple http request and receive a 204 status", %{client_options: client_options} do
-          test_no_content_response(%{
-            protocol: unquote(protocol),
-            method: unquote(method),
-            method_string: unquote(method_string),
-            client_options: client_options
-          })
-        end
-      end
-
-      for response_body_type <- @response_body_types do
-        describe "request/6 [protocol:#{protocol}, method:#{method}, response_body:#{response_body_type}]" do
-          @describetag protocol: to_string(protocol), method: to_string(method)
-
-          test "is inline process safe", %{client_options: client_options} do
-            test_inline_process_is_safe(%{
+          test "can issue a simple http request and receive a 204 status", %{client_options: client_options} do
+            test_no_content_response(%{
               protocol: unquote(protocol),
               method: unquote(method),
               method_string: unquote(method_string),
-              response_body_type: unquote(response_body_type),
-              client_options: client_options,
+              client_options: client_options
             })
           end
+        end
 
-          test "can issue an http request with query parameters", %{client_options: client_options} do
-            test_request_with_query_params(%{
-              protocol: unquote(protocol),
-              method: unquote(method),
-              method_string: unquote(method_string),
-              response_body_type: unquote(response_body_type),
-              client_options: client_options,
-            })
-          end
+        for response_body_type <- @response_body_types do
+          describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}, response_body:#{response_body_type}]" do
+            @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method)
 
-          test "can issue an http request which will return a specific body type", %{client_options: client_options} do
-            test_request_response_only(%{
-              protocol: unquote(protocol),
-              method: unquote(method),
-              method_string: unquote(method_string),
-              response_body_type: unquote(response_body_type),
-              client_options: client_options,
-            })
+            test "is inline process safe", %{client_options: client_options} do
+              test_inline_process_is_safe(%{
+                protocol: unquote(protocol),
+                method: unquote(method),
+                method_string: unquote(method_string),
+                response_body_type: unquote(response_body_type),
+                client_options: client_options,
+              })
+            end
+
+            test "can issue an http request with query parameters", %{client_options: client_options} do
+              test_request_with_query_params(%{
+                protocol: unquote(protocol),
+                method: unquote(method),
+                method_string: unquote(method_string),
+                response_body_type: unquote(response_body_type),
+                client_options: client_options,
+              })
+            end
+
+            test "can issue an http request which will return a specific body type", %{client_options: client_options} do
+              test_request_response_only(%{
+                protocol: unquote(protocol),
+                method: unquote(method),
+                method_string: unquote(method_string),
+                response_body_type: unquote(response_body_type),
+                client_options: client_options,
+              })
+            end
           end
         end
       end
-    end
 
-    for {method, method_string} <- [{:post, "POST"}, {:patch, "PATCH"}, {:put, "PUT"}] do
-      describe "request/6 [protocol:#{protocol}, method:#{method}]" do
-        @describetag protocol: to_string(protocol), method: to_string(method)
+      for {method, method_string} <- [{:post, "POST"}, {:patch, "PATCH"}, {:put, "PUT"}] do
+        describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}]" do
+          @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method)
 
-        test "can issue a urlencoded form http request and receive a 204 status", %{client_options: client_options} do
-          test_urlencoded_request_with_no_content_response(%{
-            protocol: unquote(protocol),
-            method: unquote(method),
-            method_string: unquote(method_string),
-            client_options: client_options
-          })
+          test "can issue a urlencoded form http request and receive a 204 status", %{client_options: client_options} do
+            test_urlencoded_request_with_no_content_response(%{
+              protocol: unquote(protocol),
+              method: unquote(method),
+              method_string: unquote(method_string),
+              client_options: client_options
+            })
+          end
+
+          test "can issue a form-data http request and receive a 204 status", %{client_options: client_options} do
+            test_form_data_request_with_no_content_response(%{
+              protocol: unquote(protocol),
+              method: unquote(method),
+              method_string: unquote(method_string),
+              client_options: client_options
+            })
+          end
+
+          test "can issue a json http request and receive a 204 status", %{client_options: client_options} do
+            test_json_request_with_no_content_response(%{
+              protocol: unquote(protocol),
+              method: unquote(method),
+              method_string: unquote(method_string),
+              client_options: client_options
+            })
+          end
+
+          test "can issue an xml http request and receive a 204 status", %{client_options: client_options} do
+            test_xml_request_with_no_content_response(%{
+              protocol: unquote(protocol),
+              method: unquote(method),
+              method_string: unquote(method_string),
+              client_options: client_options
+            })
+          end
+
+          test "can send a large text blob (without server reading)", %{client_options: client_options} do
+            test_large_text_request_with_no_content_response(%{
+              protocol: unquote(protocol),
+              method: unquote(method),
+              method_string: unquote(method_string),
+              client_options: client_options,
+              server_read: false
+            })
+          end
+
+          test "can send a large text blob (with server reading)", %{client_options: client_options} do
+            test_large_text_request_with_no_content_response(%{
+              protocol: unquote(protocol),
+              method: unquote(method),
+              method_string: unquote(method_string),
+              client_options: client_options,
+              server_read: true
+            })
+          end
         end
 
-        test "can issue a form-data http request and receive a 204 status", %{client_options: client_options} do
-          test_form_data_request_with_no_content_response(%{
-            protocol: unquote(protocol),
-            method: unquote(method),
-            method_string: unquote(method_string),
-            client_options: client_options
-          })
-        end
-
-        test "can issue a json http request and receive a 204 status", %{client_options: client_options} do
-          test_json_request_with_no_content_response(%{
-            protocol: unquote(protocol),
-            method: unquote(method),
-            method_string: unquote(method_string),
-            client_options: client_options
-          })
-        end
-
-        test "can issue an xml http request and receive a 204 status", %{client_options: client_options} do
-          test_xml_request_with_no_content_response(%{
-            protocol: unquote(protocol),
-            method: unquote(method),
-            method_string: unquote(method_string),
-            client_options: client_options
-          })
-        end
-
-        test "can send a large text blob (without server reading)", %{client_options: client_options} do
-          test_large_text_request_with_no_content_response(%{
-            protocol: unquote(protocol),
-            method: unquote(method),
-            method_string: unquote(method_string),
-            client_options: client_options,
-            server_read: false
-          })
-        end
-
-        test "can send a large text blob (with server reading)", %{client_options: client_options} do
-          test_large_text_request_with_no_content_response(%{
-            protocol: unquote(protocol),
-            method: unquote(method),
-            method_string: unquote(method_string),
-            client_options: client_options,
-            server_read: true
-          })
-        end
-      end
-
-      for response_body_type <- @response_body_types do
-        describe "request/6 [protocol:#{protocol}, method:#{method}, response_body_type:#{response_body_type}]" do
-
+        for response_body_type <- @response_body_types do
+          describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}, response_body_type:#{response_body_type}]" do
+            @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method), response_body_type: response_body_type
+          end
         end
       end
     end
@@ -169,10 +198,14 @@ defmodule Pepper.HTTP.ContentClientTest do
       assert [@user_agent] == get_req_header(conn, "user-agent")
       assert ["text/plain"] == get_req_header(conn, "content-type")
 
-      if server_read? do
-        {:ok, text, conn} = read_all_body(conn)
-        assert blob == text
-      end
+      conn =
+        if server_read? do
+          {:ok, text, conn} = read_all_body(conn)
+          assert blob == text
+          conn
+        else
+          conn
+        end
 
       send_resp(conn, 204, "")
     end)
