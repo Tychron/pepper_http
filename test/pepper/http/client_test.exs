@@ -5,7 +5,7 @@ defmodule Pepper.HTTP.ClientTest do
 
   import Plug.Conn
 
-  describe "request/6" do
+  describe "request/6 (GET)" do
     test "can perform a GET request" do
       bypass = Bypass.open()
 
@@ -25,10 +25,42 @@ defmodule Pepper.HTTP.ClientTest do
       headers = []
 
       assert {:ok, %{status_code: 200}, _} =
-        Client.request("GET", "http://localhost:#{bypass.port}/path/to/glory",
-                              [{"this", "is a test"}, {"also", %{"that" => "was a test"}}], headers, nil, [])
+        Client.request(
+          "GET",
+          "http://localhost:#{bypass.port}/path/to/glory",
+          [{"this", "is a test"}, {"also", %{"that" => "was a test"}}],
+          headers,
+          nil,
+          []
+        )
     end
 
+    test "can handle a timeout while receiving data from endpoint" do
+      bypass = Bypass.open()
+
+      Bypass.expect bypass, "GET", "/path/to/glory", fn conn ->
+        # purposely stall
+        Process.sleep 5000
+
+        send_resp(conn, 200, "")
+      end
+
+      headers = []
+
+      assert {:ok, %{status_code: 200}, _} =
+        Client.request(
+          "GET",
+          "http://localhost:#{bypass.port}/path/to/glory",
+          [{"this", "is a test"}, {"also", %{"that" => "was a test"}}],
+          headers,
+          nil,
+          # timeout is intentionally lower than sleep timer in server
+          [recv_timeout: 1000]
+        )
+    end
+  end
+
+  describe "request/6 (POST)" do
     test "can perform a POST request" do
       bypass = Bypass.open()
 
@@ -52,8 +84,14 @@ defmodule Pepper.HTTP.ClientTest do
       body = {:text, "Hello, World"}
 
       assert {:ok, %{status_code: 200}, _} =
-        Client.request("POST", "http://localhost:#{bypass.port}/path/to/fame",
-                              [{"this", "is a test"}, {"also", %{"that" => "was a test"}}], headers, body, [])
+        Client.request(
+          "POST",
+          "http://localhost:#{bypass.port}/path/to/fame",
+          [{"this", "is a test"}, {"also", %{"that" => "was a test"}}],
+          headers,
+          body,
+          []
+        )
     end
   end
 end

@@ -1,13 +1,19 @@
 defmodule Pepper.HTTP.ConnectionManager.Utils do
   import Pepper.HTTP.Utils
 
+  @spec read_response(:passive | :active, Mint.Conn.t(), reference(), Pepper.HTTP.Request.t()) ::
+    {:ok, Mint.Conn.t(), [any()]}
+    | {:error, Mint.Conn.t(), reasonn::any(), responses::list()}
   def read_response(:passive, conn, _ref, request) do
     case Mint.HTTP.recv(conn, 0, request.options[:recv_timeout]) do
       {:ok, _conn, _responses} = res ->
         res
 
       {:error, conn, reason} ->
-        {:error, conn, reason}
+        {:error, conn, reason, []}
+
+      {:error, conn, reason, responses} ->
+        {:error, conn, reason, responses}
     end
   end
 
