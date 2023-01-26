@@ -47,7 +47,7 @@ defmodule Pepper.HTTP.ClientTest do
 
       headers = []
 
-      assert {:ok, %{status_code: 200}, _} =
+      assert {:error, {:recv_error, %Mint.TransportError{reason: :timeout}}} =
         Client.request(
           "GET",
           "http://localhost:#{bypass.port}/path/to/glory",
@@ -57,6 +57,8 @@ defmodule Pepper.HTTP.ClientTest do
           # timeout is intentionally lower than sleep timer in server
           [recv_timeout: 1000]
         )
+
+      Bypass.down bypass
     end
   end
 

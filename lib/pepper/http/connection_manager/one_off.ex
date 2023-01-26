@@ -38,6 +38,10 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
                   {:error, conn, reason} ->
                     Mint.HTTP.close(conn)
                     {:error, {:recv_error, reason}}
+
+                  {:error, conn, reason, _} ->
+                    Mint.HTTP.close(conn)
+                    {:error, {:recv_error, reason}}
                 end
 
               {:error, conn, reason} ->

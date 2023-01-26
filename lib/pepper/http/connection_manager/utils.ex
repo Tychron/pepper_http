@@ -40,6 +40,9 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
 
       {:error, conn, reason} ->
         {:error, conn, reason}
+
+      {:error, conn, reason, responses} ->
+        {:error, conn, reason, responses}
     end
   end
 
