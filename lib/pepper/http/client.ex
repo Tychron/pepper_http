@@ -40,18 +40,20 @@ defmodule Pepper.HTTP.Client do
                         | {:attempts, non_neg_integer()}
                         | {:connect_options, [connect_option()]}
 
-  @type path :: String.t()
+  @type url :: String.t()
 
   @type headers :: [{String.t(), String.t()}]
 
-  @spec request(method(), path(), headers(), iodata(), [request_option()]) ::
+  @type response_error :: Pepper.HTTP.URIError.t() | term()
+
+  @spec request(method(), url(), headers(), iodata(), [request_option()]) ::
           {:ok, Response.t()}
-          | {:error, reason::term()}
+          | {:error, response_error()}
   def request(method, url, headers, body, options \\ []) when is_binary(url) and is_list(options) do
     options = Keyword.put_new(options, :attempts, 1)
 
     case URI.parse(url) do
-      %{scheme: scheme, host: host} = uri when is_binary(host) ->
+      %URI{scheme: scheme, host: host} = uri when is_binary(host) ->
         request =
           %Request{
             method: method,
@@ -69,9 +71,26 @@ defmodule Pepper.HTTP.Client do
           "https" ->
             do_request(%{request | scheme: :https})
 
-          scheme ->
-            {:error, {:unexpected_scheme, scheme}}
+          _scheme ->
+            error =
+              %Pepper.HTTP.URIError{
+                message: "the provided uri has an invalid scheme, try http or https",
+                uri: uri,
+                reason: :unexpected_scheme,
+              }
+
+            {:error, error}
         end
+
+      %URI{} = uri ->
+        error =
+          %Pepper.HTTP.URIError{
+            message: "the provided uri is invalid",
+            uri: uri,
+            reason: :bad_uri,
+          }
+
+        {:error, error}
     end
   end
 
@@ -153,9 +172,20 @@ defmodule Pepper.HTTP.Client do
     Enum.reverse(acc)
   end
 
+  @allowed_keys [
+    :attempts,
+    :mode,
+    :connection_manager,
+    :connection_manager_id,
+    :recv_size,
+    :recv_timeout,
+    :connect_timeout,
+    :connect_options
+  ]
+
   defp validate_options!(
     [{key, _} = pair | rest], acc
-  ) when key in [:attempts, :mode, :connection_manager, :connection_manager_id, :recv_size, :recv_timeout, :connect_timeout, :connect_options] do
+  ) when key in @allowed_keys do
     validate_options!(rest, [pair | acc])
   end
 

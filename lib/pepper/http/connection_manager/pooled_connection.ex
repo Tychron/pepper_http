@@ -68,15 +68,19 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
 
   @impl true
   def handle_info(message, %State{} = state) do
-    case Mint.HTTP.stream(state.conn, message) do
-      {:error, conn, %Mint.TransportError{reason: :closed}, _rest} ->
-        {:stop, :normal, %{state | conn: conn}}
+    if state.conn do
+      case Mint.HTTP.stream(state.conn, message) do
+        {:error, conn, %Mint.TransportError{reason: :closed}, _rest} ->
+          {:stop, :normal, %{state | conn: conn}}
 
-      {:error, conn, reason, _rest} ->
-        {:stop, reason, %{state | conn: conn}}
+        {:error, conn, reason, _rest} ->
+          {:stop, reason, %{state | conn: conn}}
 
-      _ ->
-        {:noreply, state}
+        _ ->
+          {:noreply, state}
+      end
+    else
+      {:noreply, state}
     end
   end
 

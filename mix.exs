@@ -4,7 +4,7 @@ defmodule Pepper.HTTP.MixProject do
   def project do
     [
       app: :pepper_http,
-      version: "0.1.0",
+      version: "0.2.0",
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       elixirc_options: [
@@ -18,7 +18,6 @@ defmodule Pepper.HTTP.MixProject do
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
   def application do
     [
       extra_applications: [:logger]
@@ -28,7 +27,6 @@ defmodule Pepper.HTTP.MixProject do
   def elixirc_paths(:test), do: ["lib", "test/support"]
   def elixirc_paths(_), do: ["lib"]
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       # Parse accept headers

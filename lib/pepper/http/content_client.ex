@@ -32,7 +32,7 @@ defmodule Pepper.HTTP.ContentClient do
               | {:form_stream, term()}
               | nil
 
-  @type url :: String.t()
+  @type url :: Client.url()
 
   @type query_params :: Keyword.t()
 
@@ -60,7 +60,9 @@ defmodule Pepper.HTTP.ContentClient do
                        | {:csv, term()}
                        | {:unk, term()}
 
-  @type response :: {:ok, Response.t(), response_body()} | {:error, term()}
+  @type response_error :: Pepper.HTTP.BodyError.t() | Client.response_error()
+
+  @type response :: {:ok, Response.t(), response_body()} | {:error, response_error()}
 
   @spec request(method(), url(), query_params(), headers(), body(), options()) :: response()
   def request(method, url, query_params, headers, body, options \\ []) do
@@ -78,7 +80,14 @@ defmodule Pepper.HTTP.ContentClient do
         |> handle_response(options)
 
       {:error, reason} ->
-        {:error, {:encode_body_error, reason}}
+        error =
+          %Pepper.HTTP.BodyError{
+            message: "body encoding failed",
+            reason: reason,
+            body: body,
+          }
+
+        {:error, error}
     end
   end
 

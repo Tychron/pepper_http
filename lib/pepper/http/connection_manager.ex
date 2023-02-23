@@ -12,6 +12,20 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
 
   @moduledoc """
   Connection pool implementation
+
+  Usage:
+
+      # Add the manager to your supervision tree:
+      children = [
+        ...
+        {Pepper.HTTP.ConnectionManager.Pooled, [
+          # Pool Options
+          [pool_size: 10],
+
+          # Process Options - see GenServer for process options
+          [name: :my_pool_name],
+        ]},
+      ]
   """
 
   require Logger
@@ -22,7 +36,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   alias Pepper.HTTP.Request
   alias Pepper.HTTP.Response
 
-  @type conn_key :: {scheme::atom(), host::String.t(), port::integer()}
+  @type conn_key :: {scheme::atom(), host::String.t(), port::integer(), Keyword.t()}
 
   @type connection_id :: GenServer.server()
 
@@ -46,7 +60,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   end
 
   @spec request(connection_id(), Request.t()) :: {:ok, Response.t()} | {:error, term()}
-  def request(server, request) do
+  def request(server, %Pepper.HTTP.Request{} = request) do
     connect_timeout = Keyword.fetch!(request.options, :connect_timeout)
     recv_timeout = Keyword.fetch!(request.options, :recv_timeout)
     timeout = connect_timeout + recv_timeout + 100
@@ -62,16 +76,28 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
     end
   end
 
+  @spec get_stats(connection_id(), timeout()) :: map()
   def get_stats(server, timeout \\ 15_000) do
     GenServer.call(server, :get_stats, timeout)
   end
 
   defdelegate stop(pid, reason \\ :normal), to: GenServer
 
-  @spec start_link(start_options(), Keyword.t()) :: GenServer.on_start()
-  def start_link(opts, process_options \\ []) do
-    opts = Keyword.put_new(opts, :pool_size, 100)
-    opts = Keyword.put_new(opts, :default_lifespan, 30_000)
+  defp patch_start_options(options) when is_list(options) do
+    options
+    |> Keyword.put_new(:pool_size, 100)
+    |> Keyword.put_new(:default_lifespan, 30_000)
+  end
+
+  @spec start(start_options(), GenServer.options()) :: GenServer.on_start()
+  def start(opts, process_options \\ []) when is_list(opts) and is_list(process_options) do
+    opts = patch_start_options(opts)
+    GenServer.start(__MODULE__, opts, process_options)
+  end
+
+  @spec start_link(start_options(), GenServer.options()) :: GenServer.on_start()
+  def start_link(opts, process_options \\ []) when is_list(opts) and is_list(process_options) do
+    opts = patch_start_options(opts)
     GenServer.start_link(__MODULE__, opts, process_options)
   end
 
@@ -105,7 +131,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   end
 
   @impl true
-  def handle_call({:request, request}, from, %State{} = state) do
+  def handle_call({:request, %Pepper.HTTP.Request{} = request}, from, %State{} = state) do
     connect_options = Keyword.get(request.options, :connect_options, [])
 
     key = {request.scheme, request.uri.host, request.uri.port, connect_options}
@@ -188,6 +214,9 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
     end
   end
 
+  @spec checkout_connection(conn_key(), State.t()) ::
+    {:ok, any(), State.t()}
+    | {:error, any(), State.t()}
   defp checkout_connection(key, %State{} = state) do
     if state.available_size > 0 do
       # check if there are any available connections
