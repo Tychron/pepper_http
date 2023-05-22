@@ -64,6 +64,16 @@ defmodule Pepper.HTTP.ContentClient do
 
   @type response :: {:ok, Response.t(), response_body()} | {:error, response_error()}
 
+  @doc """
+  Perform an HTTP Request
+
+  * `method` - the http method, either a string or atom
+  * `url` - the url to send the request to
+  * `query_params` - optional list or map of query paremeters
+  * `headers` - a list of http headers
+  * `body` - the body of the request, see `body` type for more information
+  * `options` - additional options for the request
+  """
   @spec request(method(), url(), query_params(), headers(), body(), options()) :: response()
   def request(method, url, query_params, headers, body, options \\ []) do
     case encode_body(body) do
@@ -76,7 +86,10 @@ defmodule Pepper.HTTP.ContentClient do
 
         {all_headers, options} = maybe_add_auth_headers(all_headers, options)
 
-        Client.request(method, new_url, all_headers, blob, options)
+        client_options =
+          Keyword.drop(options, [:normalize_xml])
+
+        Client.request(method, new_url, all_headers, blob, client_options)
         |> handle_response(options)
 
       {:error, reason} ->
