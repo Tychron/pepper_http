@@ -16,6 +16,9 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
   alias Pepper.HTTP.Request
   alias Pepper.HTTP.Response
   alias Pepper.HTTP.ConnectError
+  alias Pepper.HTTP.SendError
+  alias Pepper.HTTP.RequestError
+  alias Pepper.HTTP.ReceiveError
 
   import Pepper.HTTP.ConnectionManager.Utils
 
@@ -112,17 +115,14 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
                     {:noreply, state}
 
                   {:error, conn, reason} ->
-                    state = %{state | conn: conn}
-                    :ok = GenServer.reply(from, {:error, {:recv_error, reason}})
-                    state = checkin(state, {:error, {:recv_error, reason}})
-                    {:noreply, state}
+                    handle_receive_error(conn, reason, request, from, state)
+
+                  {:error, conn, reason, _} ->
+                    handle_receive_error(conn, reason, request, from, state)
                 end
 
               {:error, conn, reason} ->
-                state = %{state | conn: conn}
-                :ok = GenServer.reply(from, {:error, {:send_error, reason}})
-                state = checkin(state, {:error, {:send_error, reason}})
-                {:noreply, state}
+                handle_send_error(conn, reason, request, from, state)
             end
 
           {:error, conn, reason} ->
@@ -152,26 +152,17 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
               do_request(request, from, state)
             else
               # otherwise the request should not be retried and this worker will emit an error
-              state = %{state | conn: conn}
-              :ok = GenServer.reply(from, {:error, {:request_error, reason}})
-              state = checkin(state, {:error, {:request_error, reason}})
-              {:noreply, state}
+              handle_request_error(conn, reason, request, from, state)
             end
         end
 
       {:error, reason, state} ->
-        connect_error = %ConnectError{
-          message: "Could not establish connection",
-          reason: reason,
-          request: request,
-        }
-        :ok = GenServer.reply(from, {:error, connect_error})
-        state = checkin(state, {:error, connect_error})
-        {:noreply, state}
+        handle_connect_error(reason, request, from, state)
     end
   rescue ex ->
-    :ok = GenServer.reply(from, {:exception, ex, __STACKTRACE__})
-    state = checkin(state, {:exception, ex, __STACKTRACE__})
+    msg = {:exception, ex, __STACKTRACE__}
+    :ok = GenServer.reply(from, msg)
+    state = checkin(state, msg)
     {:noreply, state}
   end
 
@@ -250,5 +241,52 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
       {:error, _} ->
         state
     end
+  end
+
+  defp handle_request_error(conn, reason, request, from, %State{} = state) do
+    state = %{state | conn: conn}
+    ex = %RequestError{
+      message: "Error occured while sending request to remote",
+      reason: reason,
+      request: request,
+    }
+    :ok = GenServer.reply(from, {:error, ex})
+    state = checkin(state, {:error, ex})
+    {:noreply, state}
+  end
+
+  defp handle_send_error(conn, reason, request, from, %State{} = state) do
+    state = %{state | conn: conn}
+    ex = %SendError{
+      message: "Error occured while sending data to remote",
+      reason: reason,
+      request: request,
+    }
+    :ok = GenServer.reply(from, {:error, ex})
+    state = checkin(state, {:error, ex})
+    {:noreply, state}
+  end
+
+  defp handle_receive_error(conn, reason, request, from, %State{} = state) do
+    state = %{state | conn: conn}
+    ex = %ReceiveError{
+      message: "Error occured while receiving data from remote",
+      reason: reason,
+      request: request,
+    }
+    :ok = GenServer.reply(from, {:error, ex})
+    state = checkin(state, {:error, ex})
+    {:noreply, state}
+  end
+
+  defp handle_connect_error(reason, request, from, %State{} = state) do
+    ex = %ConnectError{
+      message: "Could not establish connection",
+      reason: reason,
+      request: request,
+    }
+    :ok = GenServer.reply(from, {:error, ex})
+    state = checkin(state, {:error, ex})
+    {:noreply, state}
   end
 end

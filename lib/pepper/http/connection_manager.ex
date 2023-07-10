@@ -35,6 +35,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   alias Pepper.HTTP.ConnectionManager.PooledConnection
   alias Pepper.HTTP.Request
   alias Pepper.HTTP.Response
+  alias Pepper.HTTP.CheckoutError
+  alias Pepper.HTTP.ReceiveError
+  alias Pepper.HTTP.RequestError
+  alias Pepper.HTTP.SendError
+  alias Pepper.HTTP.ConnectError
 
   @type conn_key :: {scheme::atom(), host::String.t(), port::integer(), Keyword.t()}
 
@@ -44,6 +49,12 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
                       | {:default_lifespan, non_neg_integer()}
 
   @type start_options :: [start_option()]
+
+  @type error_reasons :: ReceiveError.t()
+                       | RequestError.t()
+                       | SendError.t()
+                       | ConnectError.t()
+                       | CheckoutError.t()
 
   def child_spec([opts]) do
     child_spec([opts, []])
@@ -59,7 +70,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
     }, %{})
   end
 
-  @spec request(connection_id(), Request.t()) :: {:ok, Response.t()} | {:error, term()}
+  @spec request(connection_id(), Request.t()) :: {:ok, Response.t()} | {:error, error_reasons()}
   def request(server, %Pepper.HTTP.Request{} = request) do
     connect_timeout = Keyword.fetch!(request.options, :connect_timeout)
     recv_timeout = Keyword.fetch!(request.options, :recv_timeout)
@@ -137,7 +148,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
     key = {request.scheme, request.uri.host, request.uri.port, connect_options}
     case checkout_connection(key, state) do
       {:empty, state} ->
-        {:reply, {:error, :no_available_connections}, state}
+        ex = %CheckoutError{
+          message: "Could not checkout connection",
+          reason: :no_available_connections,
+        }
+        {:reply, {:error, ex}, state}
 
       {:ok, {^key, pid}, state} when is_pid(pid) ->
         # submit the request to the pooled connection
@@ -147,7 +162,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
         {:noreply, state}
 
       {:error, reason, state} ->
-        {:reply, {:error, {:checkout_error, reason}}, state}
+        ex = %CheckoutError{
+          message: "Could not checkout connection",
+          reason: reason,
+        }
+        {:reply, {:error, ex}, state}
     end
   end
 

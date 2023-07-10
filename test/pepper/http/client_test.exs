@@ -47,7 +47,7 @@ defmodule Pepper.HTTP.ClientTest do
 
       headers = []
 
-      assert {:error, {:recv_error, %Mint.TransportError{reason: :timeout}}} =
+      assert {:error, %Pepper.HTTP.ReceiveError{reason: %Mint.TransportError{reason: :timeout}}} =
         Client.request(
           "GET",
           "http://localhost:#{bypass.port}/path/to/glory",

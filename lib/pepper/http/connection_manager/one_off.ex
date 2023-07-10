@@ -5,15 +5,24 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
   alias Pepper.HTTP.Request
   alias Pepper.HTTP.Response
   alias Pepper.HTTP.ConnectError
+  alias Pepper.HTTP.SendError
+  alias Pepper.HTTP.RequestError
+  alias Pepper.HTTP.ReceiveError
 
   import Pepper.HTTP.ConnectionManager.Utils
 
-  @spec request(term(), Request.t()) :: {:ok, Response.t()} | {:error, term()}
+  @type error_reasons :: ReceiveError.t()
+                       | RequestError.t()
+                       | SendError.t()
+                       | ConnectError.t()
+
+  @spec request(term(), Request.t()) :: {:ok, Response.t()} | {:error, error_reasons()}
   def request(_id, %Request{} = request) do
+    mode = request.options[:mode]
     connect_options = Keyword.merge(
       [
         {:timeout, request.options[:connect_timeout]},
-        {:mode, request.options[:mode]}
+        {:mode, mode}
       ],
       Keyword.get(request.options, :connect_options, [])
     )
@@ -30,32 +39,68 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
 
             case result do
               {:ok, conn, responses} ->
-                case read_responses(request.options[:mode], conn, ref, response, request, responses) do
+                case read_responses(mode, conn, ref, response, request, responses) do
                   {:ok, conn, response} ->
                     Mint.HTTP.close(conn)
                     {:ok, response}
 
                   {:error, conn, reason} ->
                     Mint.HTTP.close(conn)
-                    {:error, {:recv_error, reason}}
+                    handle_receive_error(conn, reason, request)
 
                   {:error, conn, reason, _} ->
                     Mint.HTTP.close(conn)
-                    {:error, {:recv_error, reason}}
+                    handle_receive_error(conn, reason, request)
                 end
 
               {:error, conn, reason} ->
                 Mint.HTTP.close(conn)
-                {:error, {:send_error, reason}}
+                handle_send_error(conn, reason, request)
             end
 
           {:error, conn, reason} ->
             Mint.HTTP.close(conn)
-            {:error, {:request_error, reason}}
+            handle_request_error(conn, reason, request)
         end
 
       {:error, reason} ->
-        {:error, %ConnectError{message: "could not connect", request: request, reason: reason}}
+        handle_connect_error(reason, request)
     end
+  end
+
+  defp handle_receive_error(_conn, reason, request) do
+    ex = %ReceiveError{
+      message: "Error occured while receiving data from remote",
+      reason: reason,
+      request: request,
+    }
+    {:error, ex}
+  end
+
+  defp handle_send_error(_conn, reason, request) do
+    ex = %SendError{
+      message: "Error occured while sending data to remote",
+      reason: reason,
+      request: request,
+    }
+    {:error, ex}
+  end
+
+  defp handle_request_error(_conn, reason, request) do
+    ex = %RequestError{
+      message: "Error occured while sending request to remote",
+      reason: reason,
+      request: request,
+    }
+    {:error, ex}
+  end
+
+  defp handle_connect_error(reason, request) do
+    ex = %ConnectError{
+      message: "could not connect",
+      request: request,
+      reason: reason,
+    }
+    {:error, ex}
   end
 end
