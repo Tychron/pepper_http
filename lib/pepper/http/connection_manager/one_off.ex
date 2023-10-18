@@ -32,8 +32,6 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
 
     case Mint.HTTP.connect(request.scheme, request.uri.host, request.uri.port, connect_options) do
       {:ok, conn} ->
-        IO.inspect {:connection, conn}
-
         {request, is_stream?, body} =
           determine_if_body_should_stream(conn, request)
 
