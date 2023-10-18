@@ -198,10 +198,13 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     if state.conn do
       {:ok, state}
     else
+      req_options = request.options
       connect_options = Keyword.merge(
         [
-          {:timeout, request.options[:connect_timeout]},
-          {:mode, request.options[:mode]}
+          mode: req_options[:mode],
+          transport_opts: [
+            timeout: req_options[:connect_timeout],
+          ],
         ],
         Keyword.get(request.options, :connect_options, [])
       )

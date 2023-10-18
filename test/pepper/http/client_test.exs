@@ -35,12 +35,34 @@ defmodule Pepper.HTTP.ClientTest do
         )
     end
 
+    test "can handle a request that fails to connect" do
+      bypass = Bypass.open()
+
+      Bypass.down bypass
+
+      headers = []
+
+      assert {:error, %Pepper.HTTP.ConnectError{reason: %Mint.TransportError{reason: :econnrefused}}} =
+        Client.request(
+          "GET",
+          "http://localhost:#{bypass.port}/path/to/glory",
+          [{"this", "is a test"}, {"also", %{"that" => "was a test"}}],
+          headers,
+          nil,
+          # timeout is intentionally lower than sleep timer in server
+          [
+            recv_timeout: 1000,
+            connect_timeout: 1000,
+          ]
+        )
+    end
+
     test "can handle a timeout while receiving data from endpoint" do
       bypass = Bypass.open()
 
       Bypass.expect bypass, "GET", "/path/to/glory", fn conn ->
         # purposely stall
-        Process.sleep 5000
+        Process.sleep 3000
 
         send_resp(conn, 200, "")
       end

@@ -74,7 +74,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def request(server, %Pepper.HTTP.Request{} = request) do
     connect_timeout = Keyword.fetch!(request.options, :connect_timeout)
     recv_timeout = Keyword.fetch!(request.options, :recv_timeout)
-    timeout = connect_timeout + recv_timeout + 100
+    timeout = connect_timeout + recv_timeout + 1000
     case GenServer.call(server, {:request, request}, timeout) do
       {:ok, _resp} = res ->
         res

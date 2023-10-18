@@ -10,7 +10,7 @@ defmodule Pepper.HTTP.ConnectionManagerTest do
   @port 9899
 
   describe "connection pool" do
-    test "can perform requests without connection pool" do
+    test "can perform GET requests without connection pool" do
       bypass = Bypass.open(port: @port)
 
       Bypass.stub(bypass, "GET", "/path", fn conn ->
@@ -40,7 +40,7 @@ defmodule Pepper.HTTP.ConnectionManagerTest do
       end
     end
 
-    test "can perform a request with connection pool" do
+    test "can perform a GET request with connection pool" do
       bypass = Bypass.open(port: @port)
 
       Bypass.stub(bypass, "GET", "/path", fn conn ->
@@ -84,7 +84,58 @@ defmodule Pepper.HTTP.ConnectionManagerTest do
       end
     end
 
-    test "can perform a request with connection pool and non-connectable endpoint" do
+    test "can perform a GET request with connection pool and handle a connect timeout" do
+      bypass = Bypass.open(port: @port)
+
+      Bypass.down bypass
+
+      headers = [
+        {"accept", "*/*"},
+        {"user-agent", @user_agent}
+      ]
+
+      query_params = []
+
+      {:ok, pid} = Pepper.HTTP.ConnectionManager.Pooled.start_link([pool_size: 100], [])
+
+      try do
+        options = [
+          connection_manager: :pooled,
+          connection_manager_id: pid,
+          connect_timeout: 1000,
+          recv_timeout: 1000,
+        ]
+
+        assert %{
+          busy_size: 0,
+          available_size: 0
+        } = Pepper.HTTP.ConnectionManager.Pooled.get_stats(pid)
+
+        for _ <- 1..1000 do
+          assert {:error,
+            %Pepper.HTTP.ConnectError{
+              reason: %Mint.TransportError{reason: :econnrefused, __exception__: true}
+            }
+          } = Client.request(
+            :get,
+            "http://localhost:#{@port}/path",
+            query_params,
+            headers,
+            "",
+            options
+          )
+        end
+
+        assert %{
+          busy_size: 0,
+          available_size: 0
+        } = Pepper.HTTP.ConnectionManager.Pooled.get_stats(pid)
+      after
+        Pepper.HTTP.ConnectionManager.Pooled.stop(pid)
+      end
+    end
+
+    test "can perform a GET request with connection pool and non-connectable endpoint" do
       headers = [
         {"accept", "*/*"},
         {"user-agent", @user_agent}
