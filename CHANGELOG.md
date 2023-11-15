@@ -1,3 +1,11 @@
+# 0.6.0
+
+* Bugfix `recv_size` was not respected allowing a response to be completely read into memory, an error is now returned when the `recv_size` is exceeded, discarding the entire currently read body in the process.
+* Added `Pepper.HTTP.ResponseBodyHandler` modules:
+  * `Default` - read response from server and store as binary
+  * `File` - read response to a file
+* Added `docs/*.md` which contains documentation on the libraries usage for most common cases
+
 # 0.2.0
 
 * Changed undocumented error tuples on request
