@@ -102,8 +102,12 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
             # it was only set initially to ensure that the request doesn't enter a reconnecting
             # loop
             state = %{state | just_reconnected: false}
-            response = %Response{protocol: Mint.HTTP.protocol(conn)}
-            result = maybe_stream_body(conn, ref, request, is_stream?, [])
+            response = %Response{
+              protocol: Mint.HTTP.protocol(conn),
+              body_handler: request.response_body_handler,
+              body_handler_options: request.response_body_handler_options,
+            }
+            result = maybe_stream_request_body(conn, ref, request, is_stream?, [])
 
             case result do
               {:ok, conn, responses} ->

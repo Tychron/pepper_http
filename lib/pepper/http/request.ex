@@ -9,6 +9,9 @@ defmodule Pepper.HTTP.Request do
     headers: nil,
     body: nil,
     blob: nil,
+    recv_size: nil,
+    response_body_handler: nil,
+    response_body_handler_options: nil,
     options: nil,
   ]
 
@@ -22,6 +25,9 @@ defmodule Pepper.HTTP.Request do
     headers: list(),
     body: term(),
     blob: binary(),
+    recv_size: non_neg_integer(),
+    response_body_handler: module(),
+    response_body_handler_options: any(),
     options: Keyword.t(),
   }
 end

@@ -37,8 +37,12 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
 
         case Mint.HTTP.request(conn, request.method, request.path, request.headers, body) do
           {:ok, conn, ref} ->
-            response = %Response{protocol: Mint.HTTP.protocol(conn)}
-            result = maybe_stream_body(conn, ref, request, is_stream?, [])
+            response = %Response{
+              protocol: Mint.HTTP.protocol(conn),
+              body_handler: request.response_body_handler,
+              body_handler_options: request.response_body_handler_options,
+            }
+            result = maybe_stream_request_body(conn, ref, request, is_stream?, [])
 
             case result do
               {:ok, conn, responses} ->

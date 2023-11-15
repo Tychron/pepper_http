@@ -1,10 +1,46 @@
 defmodule Pepper.HTTP.ConnectionManager.Utils do
+  alias Pepper.HTTP.Response
+  alias Pepper.HTTP.Request
+
   import Pepper.HTTP.Utils
+
+  def read_responses(mode, conn, ref, response, %Request{} = request, []) do
+    case read_response(mode, conn, ref, request) do
+      {:ok, conn, http_responses} ->
+        read_responses(mode, conn, ref, response, request, http_responses)
+
+      {:error, conn, reason} ->
+        {:error, conn, reason, []}
+
+      {:error, _conn, _reason, _responses} = err ->
+        err
+    end
+  end
+
+  def read_responses(
+    mode,
+    conn,
+    ref,
+    %Response{} = response,
+    %Request{} = request,
+    [http_response | http_responses]
+  ) do
+    case handle_response(mode, conn, ref, response, request, http_response) do
+      {:next, response} ->
+        read_responses(mode, conn, ref, response, request, http_responses)
+
+      {:done, response} ->
+        {:ok, conn, response}
+
+      {:error, conn, reason} ->
+        {:error, conn, reason, http_responses}
+    end
+  end
 
   @spec read_response(:passive | :active, Mint.Conn.t(), reference(), Pepper.HTTP.Request.t()) ::
     {:ok, Mint.Conn.t(), [any()]}
     | {:error, Mint.Conn.t(), reasonn::any(), responses::list()}
-  def read_response(:passive, conn, _ref, request) do
+  def read_response(:passive, conn, _ref, %Request{} = request) do
     case Mint.HTTP.recv(conn, 0, request.options[:recv_timeout]) do
       {:ok, _conn, _responses} = res ->
         res
@@ -12,12 +48,12 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
       {:error, conn, reason} ->
         {:error, conn, reason, []}
 
-      {:error, conn, reason, responses} ->
-        {:error, conn, reason, responses}
+      {:error, _conn, _reason, _responses} = err ->
+        err
     end
   end
 
-  def read_response(:active, conn, _ref, request) do
+  def read_response(:active, conn, _ref, %Request{} = request) do
     receive do
       message ->
         case Mint.HTTP.stream(conn, message) do
@@ -33,61 +69,15 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
     end
   end
 
-  def read_responses(:passive, conn, ref, response, request, []) do
-    case read_response(:passive, conn, ref, request) do
-      {:ok, conn, responses} ->
-        read_responses(:passive, conn, ref, response, request, responses)
-
-      {:error, conn, reason} ->
-        {:error, conn, reason}
-
-      {:error, conn, reason, responses} ->
-        {:error, conn, reason, responses}
-    end
-  end
-
-  def read_responses(:passive, conn, ref, response, request, [row | rest]) do
-    case handle_response(:passive, conn, ref, response, request, row) do
-      {:next, response} ->
-        read_responses(:passive, conn, ref, response, request, rest)
-
-      {:done, response} ->
-        {:ok, conn, response}
-    end
-  end
-
-  def read_responses(:active, conn, ref, response, request, []) do
-    case read_response(:active, conn, ref, request) do
-      {:ok, conn, responses} ->
-        read_responses(:active, conn, ref, response, request, responses)
-
-      {:done, response} ->
-        {:ok, conn, response}
-    end
-  end
-
-  def read_responses(:active, conn, ref, response, request, [_row | rest] = rows) do
-    case handle_responses(:active, conn, ref, response, request, rows) do
-      {:next, response} ->
-        read_responses(:active, conn, ref, response, request, rest)
-
-      {:done, response} ->
-        {:ok, conn, response}
-    end
-  end
-
-  def handle_responses(mode, conn, ref, response, request, [row | rest]) do
-    case handle_response(mode, conn, ref, response, request, row) do
-      {:next, response} ->
-        handle_responses(mode, conn, ref, response, request, rest)
-
-      {:done, response} ->
-        {:done, response}
-    end
-  end
-
-  def handle_response(_mode, _conn, ref, response, request, row) do
-    case row do
+  def handle_response(
+    _mode,
+    conn,
+    ref,
+    %Response{} = response,
+    %Request{} = request,
+    http_response
+  ) do
+    case http_response do
       {:status, ^ref, status_code} ->
         {:next, %{response | status_code: status_code}}
 
@@ -95,35 +85,77 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
         {:next, %{response | headers: normalize_headers(headers)}}
 
       {:data, ^ref, data} ->
-        {:next, %{response | data: [data | response.data]}}
+        try do
+          handle_data_response(conn, ref, response, request, data)
+        rescue ex ->
+          response.body_handler.cancel(response)
+          reraise ex, __STACKTRACE__
+        end
 
       {:done, ^ref} ->
-        result_body =
-          response.data
-          |> Enum.reverse()
-          |> IO.iodata_to_binary()
-
-        response =
-          %{
-            response
-            | data: [],
-              body: result_body,
-              request: request
-          }
-
-        {:done, response}
+        case response.body_handler.finalize(response) do
+          {:ok, response} ->
+            {:done, %{response | request: request}}
+        end
     end
   end
 
-  def maybe_stream_body(conn, ref, request, is_stream?, responses) do
+  defp handle_data_response(conn, _ref, %Response{} = response, %Request{} = request, data) do
+    response =
+      case response.body_state do
+        :none ->
+          case response.body_handler.init(request, response) do
+            {:ok, response} ->
+              %{response | body_state: :initialized}
+
+            {:error, _} = err ->
+              throw err
+          end
+
+        _other ->
+          response
+      end
+
+    segment_size = byte_size(data)
+    next_recv_size = response.recv_size + segment_size
+
+    size_exceeded? =
+      case request.recv_size do
+        :infinity ->
+          false
+
+        recv_size when is_integer(recv_size) ->
+          next_recv_size > recv_size
+      end
+
+    if size_exceeded? do
+      case response.body_handler.cancel(response) do
+        {:ok, _response} ->
+          throw {:error, :recv_size_exceeded}
+      end
+    else
+      case response.body_handler.handle_data(segment_size, data, response) do
+        {:ok, response} ->
+          response = %{response | recv_size: next_recv_size}
+          {:next, response}
+
+        {:error, _reason} = err ->
+          throw err
+      end
+    end
+  catch {:error, reason} ->
+    {:error, conn, {:handle_data_error, reason}}
+  end
+
+  def maybe_stream_request_body(conn, ref, %Request{} = request, is_stream?, responses) do
     if is_stream? do
-      send_body_stream(conn, ref, request, responses)
+      stream_request_body(conn, ref, request, responses)
     else
       {:ok, conn, responses}
     end
   end
 
-  defp send_body_stream(conn, ref, request, responses) do
+  defp stream_request_body(conn, ref, %Request{} = request, responses) do
     {:stream, stream} = request.body
 
     protocol = Mint.HTTP.protocol(conn)
@@ -131,7 +163,7 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
       stream
       |> Enum.reduce_while(
         {:ok, conn, responses},
-        &stream_request_body(protocol, &1, &2, ref, request)
+        &do_stream_request_body(protocol, &1, &2, ref, request)
       )
 
     case result do
@@ -152,7 +184,7 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
     end
   end
 
-  defp stream_request_body(:http1, blob, {:ok, conn, responses}, ref, _request) do
+  defp do_stream_request_body(:http1, blob, {:ok, conn, responses}, ref, _request) do
     case Mint.HTTP.stream_request_body(conn, ref, blob) do
       {:ok, conn} ->
         {:cont, {:ok, conn, responses}}
@@ -162,18 +194,18 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
     end
   end
 
-  defp stream_request_body(:http2, <<>>, {:ok, _conn, _responses} = res, _ref, _request) do
+  defp do_stream_request_body(:http2, <<>>, {:ok, _conn, _responses} = res, _ref, _request) do
     {:cont, res}
   end
 
-  defp stream_request_body(:http2, blob, {:ok, conn, responses}, ref, request) do
+  defp do_stream_request_body(:http2, blob, {:ok, conn, responses}, ref, request) do
     conn_window_size = Mint.HTTP2.get_window_size(conn, :connection)
     window_size = Mint.HTTP2.get_window_size(conn, {:request, ref})
 
     if conn_window_size <= 0 or window_size <= 0 do
       case read_response(request.options[:mode], conn, ref, request) do
         {:ok, conn, []} ->
-          stream_request_body(:http2, blob, {:ok, conn, responses}, ref, request)
+          do_stream_request_body(:http2, blob, {:ok, conn, responses}, ref, request)
 
         {:ok, conn, next_responses} ->
           {:halt, {:unexpected_responses, conn, responses ++ next_responses}}
@@ -196,7 +228,7 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
 
       case Mint.HTTP.stream_request_body(conn, ref, next_blob) do
         {:ok, conn} ->
-          stream_request_body(:http2, rest, {:ok, conn, responses}, ref, request)
+          do_stream_request_body(:http2, rest, {:ok, conn, responses}, ref, request)
 
         {:error, _conn, _reason} = err ->
           {:halt, err}

@@ -20,7 +20,7 @@ defmodule Pepper.HTTP.Client do
   By default ALL http requests are one-off requests, meaning the connection is opened and closed
   in a single session.
 
-  It works well for infrequent requests.
+  It works well for infrequent requests but is not suited for large quantities of request.
   """
   @type connection_manager :: :one_off | :pooled | module()
 
@@ -37,6 +37,8 @@ defmodule Pepper.HTTP.Client do
                         | {:mode, :active | :passive}
                         | {:connection_manager, connection_manager()}
                         | {:connection_manager_id, term()}
+                        | {:response_body_handler, module()}
+                        | {:response_body_handler_options, any()}
                         | {:attempts, non_neg_integer()}
                         | {:connect_options, [connect_option()]}
 
@@ -50,6 +52,9 @@ defmodule Pepper.HTTP.Client do
           {:ok, Response.t()}
           | {:error, response_error()}
   def request(method, url, headers, body, options \\ []) when is_binary(url) and is_list(options) do
+    method = normalize_http_method(method)
+    headers = normalize_headers(headers)
+
     options = Keyword.put_new(options, :attempts, 1)
 
     case URI.parse(url) do
@@ -94,22 +99,26 @@ defmodule Pepper.HTTP.Client do
     end
   end
 
-  defp do_request(request) do
+  defp do_request(%Request{} = request) do
     options =
       request.options
       |> Keyword.put_new(:connect_timeout, 30_000) # 30 seconds
       |> Keyword.put_new(:recv_timeout, 30_000) # 30 seconds
       |> Keyword.put_new(:recv_size, 8 * 1024 * 1024) # 8 megabytes
       |> Keyword.put_new(:mode, :passive) # passive will pull bytes off, safer for inline process
+      |> Keyword.put_new(:response_body_handler, Pepper.HTTP.ResponseBodyHandler.Default)
+      |> Keyword.put_new(:response_body_handler_options, [])
+      |> Keyword.put_new(:connection_manager, :one_off)
+      |> Keyword.put_new(:connection_manager_id, :default)
       |> validate_options!()
 
+    recv_size = Keyword.fetch!(options, :recv_size)
+    response_body_handler = Keyword.fetch!(options, :response_body_handler)
+    response_body_handler_options = Keyword.fetch!(options, :response_body_handler_options)
+    connection_manager = Keyword.fetch!(options, :connection_manager)
+    connection_manager_id = Keyword.fetch!(options, :connection_manager_id)
+
     request = %{request | options: options}
-
-    connection_manager = Keyword.get(request.options, :connection_manager, :one_off)
-    connection_manager_id = Keyword.get(request.options, :connection_manager_id, :default)
-
-    method = normalize_http_method(request.method)
-    headers = normalize_headers(request.headers)
 
     path = request.uri.path || "/"
 
@@ -126,11 +135,12 @@ defmodule Pepper.HTTP.Client do
       end
 
     request =
-      %{
+      %Request{
         request
-        | method: method,
-          headers: headers,
-          path: path,
+        | path: path,
+          recv_size: recv_size,
+          response_body_handler: response_body_handler,
+          response_body_handler_options: response_body_handler_options,
       }
 
     connection_manager_module =
@@ -173,6 +183,8 @@ defmodule Pepper.HTTP.Client do
   end
 
   @allowed_keys [
+    :response_body_handler,
+    :response_body_handler_options,
     :attempts,
     :mode,
     :connection_manager,
