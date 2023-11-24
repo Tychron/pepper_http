@@ -44,7 +44,7 @@ defmodule Pepper.HTTP.MixProject do
       # HTTP Library
       {:mint, "~> 1.0"},
       # Certificate Store
-      {:castore, "~> 0.1"},
+      {:castore, "~> 0.1 or ~> 1.0"},
       {:bypass, "~> 1.0 or ~> 2.1", [only: :test]},
     ]
   end
