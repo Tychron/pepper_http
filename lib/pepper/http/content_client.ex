@@ -78,19 +78,29 @@ defmodule Pepper.HTTP.ContentClient do
   def request(method, url, query_params, headers, body, options \\ []) do
     case encode_body(body) do
       {:ok, {body_headers, blob}} ->
-        new_url = encode_new_url(url, query_params)
+        case encode_new_uri(url, query_params) do
+          {:ok, new_uri} ->
+            all_headers = body_headers ++ Enum.map(headers, fn {key, value} ->
+              {String.downcase(key), value}
+            end)
 
-        all_headers = body_headers ++ Enum.map(headers, fn {key, value} ->
-          {String.downcase(key), value}
-        end)
+            {all_headers, options} = maybe_add_auth_headers(all_headers, options)
 
-        {all_headers, options} = maybe_add_auth_headers(all_headers, options)
+            client_options =
+              Keyword.drop(options, [:normalize_xml])
 
-        client_options =
-          Keyword.drop(options, [:normalize_xml])
+            Client.request(method, new_uri, all_headers, blob, client_options)
+            |> handle_response(options)
 
-        Client.request(method, new_url, all_headers, blob, client_options)
-        |> handle_response(options)
+          {:error, reason} ->
+            reason = %Pepper.HTTP.URIError{
+              message: "the provided uri is invalid",
+              url: url,
+              reason: reason,
+            }
+
+            {:error, reason}
+        end
 
       {:error, reason} ->
         error =
@@ -281,18 +291,24 @@ defmodule Pepper.HTTP.ContentClient do
     Plug.Conn.Query.encode(query_params)
   end
 
-  defp encode_new_url(url, query_params) do
-    case encode_query_params(query_params) do
-      nil ->
-        url
+  @spec encode_new_uri(URI.t() | String.t(), map() | Keyword.t()) :: URI.t()
+  defp encode_new_uri(url, query_params) do
+    case URI.new(url) do
+      {:ok, %URI{} = uri} ->
+        case encode_query_params(query_params) do
+          nil ->
+            {:ok, uri}
 
-      "" ->
-        url
+          "" ->
+            {:ok, uri}
 
-      qp ->
-        uri = URI.parse(url)
-        uri = %{uri | query: qp}
-        URI.to_string(uri)
+          qp ->
+            uri = %{uri | query: qp}
+            {:ok, uri}
+        end
+
+      {:error, _} = err ->
+        err
     end
   end
 

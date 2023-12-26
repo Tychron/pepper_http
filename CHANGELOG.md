@@ -1,3 +1,7 @@
+# 0.7.0
+
+* `Pepper.HTTP.Client` and `Pepper.HTTP.ContentClient` can now accept a URI struct in place of a URL string
+
 # 0.6.0
 
 * Bugfix `recv_size` was not respected allowing a response to be completely read into memory, an error is now returned when the `recv_size` is exceeded, discarding the entire currently read body in the process.

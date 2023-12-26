@@ -42,27 +42,27 @@ defmodule Pepper.HTTP.Client do
                         | {:attempts, non_neg_integer()}
                         | {:connect_options, [connect_option()]}
 
-  @type url :: String.t()
+  @type uri_or_url :: URI.t() | String.t()
 
   @type headers :: [{String.t(), String.t()}]
 
   @type response_error :: Pepper.HTTP.URIError.t() | term()
 
-  @spec request(method(), url(), headers(), iodata(), [request_option()]) ::
+  @spec request(method(), uri_or_url(), headers(), iodata(), [request_option()]) ::
           {:ok, Response.t()}
           | {:error, response_error()}
-  def request(method, url, headers, body, options \\ []) when is_binary(url) and is_list(options) do
+  def request(method, url, headers, body, options \\ []) when is_list(options) do
     method = normalize_http_method(method)
     headers = normalize_headers(headers)
 
     options = Keyword.put_new(options, :attempts, 1)
 
-    case URI.parse(url) do
-      %URI{scheme: scheme, host: host} = uri when is_binary(host) ->
+    case URI.new(url) do
+      {:ok, %URI{scheme: scheme, host: host} = uri} when is_binary(host) ->
         request =
           %Request{
             method: method,
-            url: url,
+            url: URI.to_string(uri),
             uri: uri,
             body: body,
             headers: headers,
@@ -87,12 +87,23 @@ defmodule Pepper.HTTP.Client do
             {:error, error}
         end
 
-      %URI{} = uri ->
+      {:ok, %URI{host: nil} = uri} ->
         error =
           %Pepper.HTTP.URIError{
             message: "the provided uri is invalid",
+            url: url,
             uri: uri,
             reason: :bad_uri,
+          }
+
+        {:error, error}
+
+      {:error, reason} ->
+        error =
+          %Pepper.HTTP.URIError{
+            message: "the provided uri is invalid",
+            url: url,
+            reason: reason,
           }
 
         {:error, error}

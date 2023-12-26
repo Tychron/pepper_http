@@ -6,7 +6,7 @@ defmodule Pepper.HTTP.ClientTest do
   import Plug.Conn
 
   describe "request/6 (GET)" do
-    test "can perform a GET request" do
+    test "can perform a GET request with string url" do
       bypass = Bypass.open()
 
       Bypass.expect bypass, "GET", "/path/to/glory", fn conn ->
@@ -28,6 +28,42 @@ defmodule Pepper.HTTP.ClientTest do
         Client.request(
           "GET",
           "http://localhost:#{bypass.port}/path/to/glory",
+          [{"this", "is a test"}, {"also", %{"that" => "was a test"}}],
+          headers,
+          nil,
+          []
+        )
+    end
+
+    test "can perform a GET request with URI" do
+      bypass = Bypass.open()
+
+      Bypass.expect bypass, "GET", "/path/to/glory", fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        assert %{
+          "this" => "is a test",
+          "also" => %{
+            "that" => "was a test",
+          }
+        } = conn.query_params
+
+        send_resp(conn, 200, "")
+      end
+
+      headers = []
+
+      uri = %URI{
+        scheme: "http",
+        host: "localhost",
+        path: "/path/to/glory",
+        port: bypass.port,
+      }
+
+      assert {:ok, %{status_code: 200}, _} =
+        Client.request(
+          "GET",
+          uri,
           [{"this", "is a test"}, {"also", %{"that" => "was a test"}}],
           headers,
           nil,
