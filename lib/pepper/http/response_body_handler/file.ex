@@ -40,7 +40,7 @@ defmodule Pepper.HTTP.ResponseBodyHandler.File do
 
   @impl true
   def handle_data(_size, data, %Response{data: {_filename, file}} = response) do
-    case IO.write(file, data) do
+    case IO.binwrite(file, data) do
       :ok ->
         {:ok, response}
     end
