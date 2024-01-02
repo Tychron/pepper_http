@@ -267,7 +267,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
 
   defp determine_timeout(%State{request: request} = state) do
     case state.stage do
-      :send ->
+      stage when stage in [:send, :idle] ->
         state.lifespan
 
       :recv ->
