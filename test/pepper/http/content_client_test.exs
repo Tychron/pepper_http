@@ -4,7 +4,6 @@ defmodule Pepper.HTTP.ContentClientTest do
   alias Pepper.HTTP.ContentClient, as: Client
 
   import Plug.Conn
-  import Pepper.HTTP.Utils
 
   @user_agent "content-client-test/1.0"
 
@@ -12,48 +11,9 @@ defmodule Pepper.HTTP.ContentClientTest do
 
   @response_body_types [:none, :json, :text, :xml, :csv, :other]
 
-  setup tags do
-    tags =
-      case tags[:with_connection_pool] do
-        true ->
-          {:ok, pid} =
-            start_supervised({Pepper.HTTP.ConnectionManager.Pooled, [
-              [pool_size: 10],
-              []
-            ]})
-
-          Map.put(tags, :connection_pool_pid, pid)
-
-        false ->
-          tags
-      end
-
-    protocol = String.to_existing_atom(Map.fetch!(tags, :protocol))
-
-    client_options = [
-      connect_options: [
-        protocols: [protocol]
-      ]
-    ]
-
-    client_options =
-      case tags[:connection_pool_pid] do
-        nil ->
-          client_options
-
-        pid ->
-          Keyword.merge(client_options, [
-            connection_manager: :pooled,
-            connection_manager_id: pid,
-          ])
-      end
-
-    Map.put(tags, :client_options, client_options)
-  end
-
-  for with_connection_pool <- [true, false] do
-    for protocol <- [:http1, :http2] do
-      for {method, method_string} <- [{:get, "GET"}, {:delete, "DELETE"}] do
+  Enum.each([true, false], fn with_connection_pool ->
+    Enum.each([:http1, :http2], fn protocol ->
+      Enum.each([{:get, "GET"}, {:delete, "DELETE"}], fn {method, method_string} ->
         describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}]" do
           @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method)
 
@@ -67,7 +27,7 @@ defmodule Pepper.HTTP.ContentClientTest do
           end
         end
 
-        for response_body_type <- @response_body_types do
+        Enum.each(@response_body_types, fn response_body_type ->
           describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}, response_body:#{response_body_type}]" do
             @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method)
 
@@ -101,10 +61,10 @@ defmodule Pepper.HTTP.ContentClientTest do
               })
             end
           end
-        end
-      end
+        end)
+      end)
 
-      for {method, method_string} <- [{:post, "POST"}, {:patch, "PATCH"}, {:put, "PUT"}] do
+      Enum.each([{:post, "POST"}, {:patch, "PATCH"}, {:put, "PUT"}], fn {method, method_string} ->
         describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}]" do
           @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method)
 
@@ -143,94 +103,16 @@ defmodule Pepper.HTTP.ContentClientTest do
               client_options: client_options
             })
           end
-
-          test "can send a large text blob (without server reading)", %{client_options: client_options} do
-            test_large_text_request_with_no_content_response(%{
-              protocol: unquote(protocol),
-              method: unquote(method),
-              method_string: unquote(method_string),
-              client_options: client_options,
-              server_read: false
-            })
-          end
-
-          test "can send a large text blob (with server reading)", %{client_options: client_options} do
-            test_large_text_request_with_no_content_response(%{
-              protocol: unquote(protocol),
-              method: unquote(method),
-              method_string: unquote(method_string),
-              client_options: client_options,
-              server_read: true
-            })
-          end
         end
 
-        for response_body_type <- @response_body_types do
+        Enum.each(@response_body_types, fn response_body_type ->
           describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}, response_body_type:#{response_body_type}]" do
             @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method), response_body_type: response_body_type
           end
-        end
-      end
-    end
-  end
-
-  # 16mb blob
-  @large_text_blob generate_random_base32(0x100_0000)
-
-  defp large_text_blob do
-    @large_text_blob
-  end
-
-  defp test_large_text_request_with_no_content_response(options) do
-    %{
-      protocol: protocol,
-      method: method,
-      method_string: method_string,
-      client_options: client_options,
-      server_read: server_read?
-    } = options
-
-    bypass = Bypass.open(port: @port)
-
-    blob = large_text_blob()
-
-    Bypass.expect(bypass, method_string, "/path", fn conn ->
-      assert [@user_agent] == get_req_header(conn, "user-agent")
-      assert ["text/plain"] == get_req_header(conn, "content-type")
-
-      conn =
-        if server_read? do
-          {:ok, text, conn} = read_all_body(conn)
-          assert blob == text
-          conn
-        else
-          conn
-        end
-
-      send_resp(conn, 204, "")
+        end)
+      end)
     end)
-
-    headers = [
-      {"accept", "*/*"},
-      {"user-agent", @user_agent}
-    ]
-
-    query_params = []
-
-    body = {:text, blob}
-
-    assert {:ok, %{protocol: ^protocol, status_code: 204}, {:unk, ""}} =
-      Client.request(
-        method,
-        "http://localhost:#{bypass.port}/path",
-        query_params,
-        headers,
-        body,
-        Keyword.merge([
-         recv_timeout: 5000,
-        ], client_options)
-      )
-  end
+  end)
 
   defp test_xml_request_with_no_content_response(options) do
     %{

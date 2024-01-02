@@ -14,7 +14,7 @@ defmodule Pepper.HTTP.Client do
 
   import Pepper.HTTP.Utils
 
-  @type method :: String.t() | :head | :get | :post | :put | :patch | :delete | :options
+  @type method :: Pepper.HTTP.Utils.http_method()
 
   @typedoc """
   By default ALL http requests are one-off requests, meaning the connection is opened and closed
@@ -34,7 +34,6 @@ defmodule Pepper.HTTP.Client do
   @type request_option :: {:connect_timeout, timeout()}
                         | {:recv_timeout, timeout()}
                         | {:recv_size, non_neg_integer()}
-                        | {:mode, :active | :passive}
                         | {:connection_manager, connection_manager()}
                         | {:connection_manager_id, term()}
                         | {:response_body_handler, module()}
@@ -116,7 +115,6 @@ defmodule Pepper.HTTP.Client do
       |> Keyword.put_new(:connect_timeout, 30_000) # 30 seconds
       |> Keyword.put_new(:recv_timeout, 30_000) # 30 seconds
       |> Keyword.put_new(:recv_size, 8 * 1024 * 1024) # 8 megabytes
-      |> Keyword.put_new(:mode, :passive) # passive will pull bytes off, safer for inline process
       |> Keyword.put_new(:response_body_handler, Pepper.HTTP.ResponseBodyHandler.Default)
       |> Keyword.put_new(:response_body_handler_options, [])
       |> Keyword.put_new(:connection_manager, :one_off)
@@ -197,7 +195,6 @@ defmodule Pepper.HTTP.Client do
     :response_body_handler,
     :response_body_handler_options,
     :attempts,
-    :mode,
     :connection_manager,
     :connection_manager_id,
     :recv_size,

@@ -40,9 +40,10 @@ defmodule Pepper.HTTP.MixProject do
       # XML Encoder
       {:xml_builder, "~> 2.0"},
       # CSV
-      {:csv, "~> 2.0"},
+      {:csv, "~> 2.0 or ~> 3.0"},
       # HTTP Library
       {:mint, "~> 1.0"},
+      {:httpoison, "~> 1.0"},
       # Certificate Store
       {:castore, "~> 0.1 or ~> 1.0"},
       {:bypass, "~> 1.0 or ~> 2.1", [only: :test]},

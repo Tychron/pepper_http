@@ -18,11 +18,10 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
 
   @spec request(term(), Request.t()) :: {:ok, Response.t()} | {:error, error_reasons()}
   def request(_id, %Request{} = request) do
-    mode = request.options[:mode]
     connect_options =
       Keyword.merge(
         [
-          mode: mode,
+          mode: :passive,
           transport_opts: [
             timeout: request.options[:connect_timeout],
           ],
@@ -42,11 +41,11 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
               body_handler: request.response_body_handler,
               body_handler_options: request.response_body_handler_options,
             }
-            result = maybe_stream_request_body(conn, ref, request, is_stream?, [])
+            result = maybe_stream_request_body(:passive, conn, ref, request, is_stream?, [])
 
             case result do
               {:ok, conn, responses} ->
-                case read_responses(mode, conn, ref, response, request, responses) do
+                case read_responses(:passive, conn, ref, response, request, responses) do
                   {:ok, conn, response} ->
                     Mint.HTTP.close(conn)
                     {:ok, response}

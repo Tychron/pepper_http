@@ -10,6 +10,17 @@ defmodule Pepper.HTTP.Utils do
 
   require SweetXml
 
+  @type http_method :: String.t()
+                     | :connect
+                     | :delete
+                     | :get
+                     | :head
+                     | :options
+                     | :patch
+                     | :post
+                     | :put
+                     | :trace
+
   def to_multipart_message(rows, state \\ {:headers, %Segment{}})
 
   def to_multipart_message([], {_, %Segment{} = segment}) do
@@ -104,6 +115,11 @@ defmodule Pepper.HTTP.Utils do
     |> binary_part(0, len)
   end
 
+  @spec generate_random_binary(non_neg_integer()) :: binary()
+  def generate_random_binary(len) when is_integer(len) and len > 0 do
+    :crypto.strong_rand_bytes(len)
+  end
+
   def handle_xml_body(doc) do
     doc =
       doc
@@ -186,13 +202,23 @@ defmodule Pepper.HTTP.Utils do
     end)
   end
 
-  def normalize_http_method(:head), do: "HEAD"
+  def encode_query_params(nil) do
+    nil
+  end
+
+  def encode_query_params(query_params) when is_list(query_params) or is_map(query_params) do
+    Plug.Conn.Query.encode(query_params)
+  end
+
+  def normalize_http_method(:connect), do: "CONNECT"
+  def normalize_http_method(:delete), do: "DELETE"
   def normalize_http_method(:get), do: "GET"
+  def normalize_http_method(:head), do: "HEAD"
+  def normalize_http_method(:options), do: "OPTIONS"
   def normalize_http_method(:patch), do: "PATCH"
   def normalize_http_method(:post), do: "POST"
   def normalize_http_method(:put), do: "PUT"
-  def normalize_http_method(:delete), do: "DELETE"
-  def normalize_http_method(:options), do: "OPTIONS"
+  def normalize_http_method(:trace), do: "TRACE"
 
   def normalize_http_method(method) when is_binary(method) do
     String.upcase(method)

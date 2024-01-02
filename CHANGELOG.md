@@ -1,3 +1,18 @@
+# 0.8.0
+
+## Breaking Changes
+
+* Removed `:jsonapi` response body type, it will just report as `:json` instead
+* Remove `mode` option, do not use it the respective connection manager will set the mode for itself
+* ContentClient will now return `:unaccepted` and `{:malformed, term}`` in addition to :unk to differentiate response bodies.
+  * `:unaccepted` will be returned when the response `content-type` was not acceptable from the request's accept header
+  * `:malformed` will be returned whenever the response body could not be parsed (or the `content-type` header was malformed)
+  * `:unk` will be returned for all other cases
+
+## Changes
+
+* Pepper.HTTP.ConnectionManager.PooledConnection is always in active mode
+
 # 0.7.0
 
 * `Pepper.HTTP.Client` and `Pepper.HTTP.ContentClient` can now accept a URI struct in place of a URL string
