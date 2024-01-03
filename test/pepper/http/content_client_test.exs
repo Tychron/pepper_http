@@ -589,29 +589,37 @@ defmodule Pepper.HTTP.ContentClientTest do
         assert "Hello, World" == blob
 
       {:csv, blob} ->
-        rows =
+        {:ok, stream} =
           blob
-          |> String.split("\r\n")
-          |> CSV.decode(headers: true)
-          |> Enum.map(fn {:ok, row} ->
-            row
-          end)
-          |> Enum.into([])
+          |> StringIO.open()
 
-        assert [
-          %{
-            "header1" => "r1_value1",
-            "header2" => "r1_value2",
-          },
-          %{
-            "header1" => "r2_value1",
-            "header2" => "r2_value2",
-          },
-          %{
-            "header1" => "r3_value1",
-            "header2" => "r3_value2",
-          },
-        ] == rows
+        try do
+          rows =
+            stream
+            |> IO.binstream(:line)
+            |> CSV.decode(headers: true)
+            |> Enum.map(fn {:ok, row} ->
+              row
+            end)
+            |> Enum.to_list()
+
+          assert [
+            %{
+              "header1" => "r1_value1",
+              "header2" => "r1_value2",
+            },
+            %{
+              "header1" => "r2_value1",
+              "header2" => "r2_value2",
+            },
+            %{
+              "header1" => "r3_value1",
+              "header2" => "r3_value2",
+            },
+          ] == rows
+        after
+          StringIO.close(stream)
+        end
 
       {:json, %{"body" => "Hello, World"}} ->
         assert :json == response_body_type
