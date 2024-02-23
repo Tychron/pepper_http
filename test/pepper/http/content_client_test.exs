@@ -143,14 +143,15 @@ defmodule Pepper.HTTP.ContentClientTest do
 
     query_params = []
 
-    body =
-      {:xml,
-       XmlBuilder.document([
-         {:head, [],
-          [
-            {:ref, [], ["Test Value"]}
-          ]}
-       ])}
+    body = {:xml,
+      {
+        "head",
+        [],
+        [
+          {"ref", [], ["Test Value"]}
+        ]
+      }
+    }
 
     assert {:ok, %{protocol: ^protocol, status_code: 204}, {:unk, ""}} =
       Client.request(

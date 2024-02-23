@@ -296,8 +296,8 @@ defmodule Pepper.HTTP.ContentClient.AcceptHeaderTest do
       )
 
     assert [%{
-      :Response => [%{
-        :Status => ["OK"]
+      "Response" => [%{
+        "Status" => ["OK"]
       }]
     }] = doc
   end

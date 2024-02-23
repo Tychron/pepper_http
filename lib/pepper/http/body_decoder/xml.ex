@@ -2,12 +2,12 @@ defmodule Pepper.HTTP.BodyDecoder.XML do
   import Pepper.HTTP.Utils
 
   def decode_body(body, options) do
-    data = SweetXml.parse(body)
     # Parse XML
+    {:ok, doc} = Saxy.SimpleForm.parse_string(body)
     if options[:normalize_xml] do
-      {:xmldoc, handle_xml_body(data)}
+      {:xmldoc, handle_xml_body(doc)}
     else
-      {:xml, data}
+      {:xml, doc}
     end
   end
 end

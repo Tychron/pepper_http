@@ -2,6 +2,8 @@
 
 ## Breaking Changes
 
+* Changed underlying XML encoding and decoder library to `saxy`, while encoding should remain the same, those handling XML responses must change their code to accept Saxy's "simple" format.
+  * If you use the `normalize_xml` option, keys are no longer atoms but strings.
 * Removed `:jsonapi` response body type, it will just report as `:json` instead
 * Remove `mode` option, do not use it the respective connection manager will set the mode for itself
 * ContentClient will now return `:unaccepted` and `{:malformed, term}`` in addition to :unk to differentiate response bodies.

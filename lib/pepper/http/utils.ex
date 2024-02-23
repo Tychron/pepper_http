@@ -8,8 +8,6 @@ defmodule Pepper.HTTP.Utils do
 
   import Mint.HTTP1.Parse
 
-  require SweetXml
-
   @type http_method :: String.t()
                      | :connect
                      | :delete
@@ -120,57 +118,27 @@ defmodule Pepper.HTTP.Utils do
     :crypto.strong_rand_bytes(len)
   end
 
-  def handle_xml_body(doc) do
+  def handle_xml_body(doc) when is_tuple(doc) or is_list(doc) do
     doc =
       doc
       |> List.wrap()
-      |> Enum.map(fn item ->
-        record_type = elem(item, 0)
-        xml_item_to_map(record_type, item)
+      |> Enum.map(fn {_elem_name, _attributes, _children} = item ->
+        xml_item_to_map(item)
       end)
       |> deflate_xml_map()
 
     doc
   end
 
-  for name <- [
-      :xmlDecl,
-      :xmlAttribute,
-      :xmlNamespace,
-      :xmlNsNode,
-      :xmlElement,
-      :xmlText,
-      :xmlComment,
-      :xmlPI,
-      :xmlDocument,
-      :xmlObj,
-    ] do
-    def xml_item_to_map(unquote(name), item) do
-      SweetXml.unquote(name)(item)
-      |> xml_item_deep_to_map(unquote(name))
-    end
+  @spec xml_item_to_map(tuple()) :: tuple()
+  def xml_item_to_map({elem_name, _attributes, children}) do
+    {elem_name, Enum.map(children, fn item ->
+      xml_item_to_map(item)
+    end)}
   end
 
-  def xml_item_deep_to_map(item, :xmlElement) do
-    #namespace = xml_item_to_map(:xmlNamespace, item[:namespace])
-    #item = put_in(item[:namespace], namespace)
-    #put_in(item[:content], Enum.map(item[:content], fn item ->
-    #  xml_item_to_map(elem(item, 0), item)
-    #end))
-
-    {item[:expanded_name],
-      Enum.map(item[:content], fn item ->
-        xml_item_to_map(elem(item, 0), item)
-      end)
-    }
-  end
-
-  def xml_item_deep_to_map(item, :xmlNamespace) do
+  def xml_item_to_map(item) do
     item
-  end
-
-  def xml_item_deep_to_map(item, :xmlText) do
-    to_string(item[:value])
   end
 
   def deflate_xml_map([{_, _} | _] = list) when is_list(list) do
