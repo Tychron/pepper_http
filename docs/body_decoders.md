@@ -1,13 +1,16 @@
 ## Body Decoders
 
+__Accept__ `Accept`
+
+__Content__ `Content-Type`
+
 Starting at `pepper_http >= 0.8.0`, ContentClient decoders can be set using the config:
 
 ```elixir
 config :pepper_http,
-  # Before you can use your decoder, pepper needs to know how to translate content-type headers
-  # into internal type names
-  # the decoder_content_types (and base_decoder_content_types) config does provides that information
-  # Note the the decoder is expected to return the same type name or similar
+  # Before you can use your decoder, pepper needs to know how to translate content-type headers into internal type names.
+  # The decoder_content_types (and base_decoder_content_types) config provides that information.
+  # Note the the decoder is expected to return the same type name or similar.
   decoder_content_types: [
     {{"application", "x-my-type"}, :my_type}
   ],

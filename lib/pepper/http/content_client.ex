@@ -2,6 +2,7 @@ defmodule Pepper.HTTP.ContentClient do
   alias Pepper.HTTP.Client
   alias Pepper.HTTP.Response
   alias Pepper.HTTP.BodyDecoder
+  alias Pepper.HTTP.BodyDecompressor
   alias Pepper.HTTP.BodyEncoder
   alias Pepper.HTTP.ContentClient.Headers
 
@@ -145,7 +146,12 @@ defmodule Pepper.HTTP.ContentClient do
   end
 
   defp handle_response({:ok, %Response{} = response}, options) do
-    {:ok, response, BodyDecoder.decode_body(response, options)}
+    with {:ok, response} <- BodyDecompressor.decompress_response(response, options) do
+      {:ok, response, BodyDecoder.decode_body(response, options)}
+    else
+      {:error, _} = err ->
+        err
+    end
   end
 
   defp handle_response({:error, reason}, _options) do
