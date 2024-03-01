@@ -19,3 +19,6 @@ resp.body # => "Hello, World"
 * [Clients](docs/clients.md)
 * [Connection Managers - Pools](docs/connection_managers.md)
 * [Response Body Handlers](docs/response_body_handlers.md)
+* [Body Decoders](docs/body_decoders.md)
+* [Body Encoders](docs/body_encoders.md)
+* [Additional Headers](docs/additional_headers.md)

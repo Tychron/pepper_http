@@ -28,7 +28,7 @@ defmodule Pepper.HTTP.Support.PlugPipelineHelpers do
     def parse_xml(conn, _) do
       {:ok, body, conn} = Plug.Conn.read_body(conn)
       try do
-        doc = SweetXml.parse(body)
+        doc = Saxy.SimpleForm.parse_string(body)
         put_in(conn.params["_xml"], doc)
       rescue ex ->
         raise Plug.Parsers.ParseError, exception: ex

@@ -1,6 +1,9 @@
 defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
   defmodule State do
     defstruct [
+      ref: nil,
+      stage: :idle,
+      lifespan: nil,
       pool_pid: nil,
       conn: nil,
       scheme: nil,
@@ -8,6 +11,10 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
       port: nil,
       status: :ok,
       just_reconnected: false,
+      #
+      response: nil,
+      request: nil,
+      active_request: nil,
     ]
   end
 
@@ -22,8 +29,10 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
 
   import Pepper.HTTP.ConnectionManager.Utils
 
-  def start_link(pool_pid, opts, process_options \\ []) do
-    GenServer.start_link(__MODULE__, {pool_pid, opts}, process_options)
+  @connection_key :"$connection"
+
+  def start_link(pool_pid, ref, opts, process_options \\ []) do
+    GenServer.start_link(__MODULE__, {pool_pid, ref, opts}, process_options)
   end
 
   @doc """
@@ -35,14 +44,65 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     GenServer.cast(pid, {:request, request, from})
   end
 
-  @spec schedule_stop(GenServer.server()) :: :ok
-  def schedule_stop(pid) do
-    GenServer.cast(pid, :stop)
+  @spec schedule_stop(GenServer.server(), reason::any()) :: :ok
+  def schedule_stop(pid, reason \\ :normal) do
+    GenServer.cast(pid, {:stop, reason})
   end
 
   @impl true
-  def init({pool_pid, opts}) do
-    {:ok, %State{pool_pid: pool_pid}, Keyword.fetch!(opts, :lifespan)}
+  def init({pool_pid, ref, opts}) do
+    lifespan = Keyword.fetch!(opts, :lifespan)
+    {:ok, %State{ref: ref, pool_pid: pool_pid, lifespan: lifespan}, lifespan}
+  end
+
+  @impl true
+  def handle_continue({:handle_responses, []}, %State{} = state) do
+    timeout = determine_timeout(state)
+    {:noreply, state, timeout}
+  end
+
+  @impl true
+  def handle_continue(
+    {:handle_responses, [http_response | http_responses]},
+    %State{
+      conn: conn,
+      request: request,
+      response: response,
+      active_request: %{
+        from: from,
+        ref: ref,
+      }
+    } = state
+  ) do
+    case handle_response(conn, ref, response, request, http_response) do
+      {:next, %Response{} = response} ->
+        state = %State{
+          state
+          | response: response
+        }
+        {:noreply, state, {:continue, {:handle_responses, http_responses}}}
+
+      {:done, %Response{} = response} ->
+        response =
+          %{
+            response
+            | time: System.monotonic_time(:microsecond),
+          }
+
+        :ok = GenServer.reply(from, {:ok, response})
+        state = checkin(state, :ok)
+        state = %State{
+          state
+          | stage: :idle,
+            response: nil,
+            request: nil,
+            active_request: nil,
+        }
+        {:noreply, state, state.lifespan}
+
+      {:error, conn, reason} ->
+        handle_receive_error(conn, reason, request, from, state)
+    end
   end
 
   @impl true
@@ -54,45 +114,91 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
   end
 
   @impl true
-  def handle_cast(:stop, %State{} = state) do
-    {:stop, :normal, state}
+  def handle_cast({:stop, reason}, %State{} = state) do
+    {:stop, reason, state}
   end
 
   @impl true
   def handle_cast({:request, %Request{} = request, from}, %State{} = state) do
-    do_request(request, from, state)
+    do_start_request(request, from, state)
   end
 
   @impl true
-  def handle_info(:timeout, %State{} = state) do
-    GenServer.cast(state.pool_pid, {:connection_expired, self()})
-    {:noreply, %{state | status: :expired}}
+  def handle_info(:timeout, %State{stage: :idle} = state) do
+    {:stop, :normal, %{state | status: :expired}}
   end
 
   @impl true
-  def handle_info(message, %State{} = state) do
-    if state.conn do
-      case Mint.HTTP.stream(state.conn, message) do
-        {:error, conn, %Mint.TransportError{reason: :closed}, _rest} ->
-          {:stop, :normal, %{state | conn: conn}}
+  def handle_info(:timeout, %State{stage: :recv, active_request: %{from: from}} = state) do
+    reason = %Pepper.HTTP.ReceiveError{reason: %Mint.TransportError{reason: :timeout}}
+    err = {:error, reason}
+    :ok = GenServer.reply(from, err)
+    state = checkin(state, err)
+    {:stop, :normal, %{state | status: :recv_timeout}}
+  end
 
-        {:error, conn, reason, _rest} ->
-          {:stop, reason, %{state | conn: conn}}
+  @impl true
+  def handle_info(:timeout, %State{stage: _} = state) do
+    {:stop, :timeout, %{state | status: :expired}}
+  end
 
-        _ ->
-          {:noreply, state}
-      end
-    else
-      {:noreply, state}
+  @impl true
+  def handle_info(
+    {@connection_key, :send_body},
+    %State{
+      conn: conn,
+      request: request,
+      active_request: %{
+        from: from,
+        ref: ref,
+        is_stream?: is_stream?,
+      },
+    } = state
+  ) do
+    case maybe_stream_request_body(:active, conn, ref, request, is_stream?, []) do
+      {:ok, conn, responses} ->
+        state = %{
+          state
+          | stage: :recv,
+            conn: conn,
+        }
+        {:noreply, state, {:continue, {:handle_responses, responses}}}
+
+      {:error, conn, reason} ->
+        handle_send_error(conn, reason, request, from, state)
     end
   end
 
-  defp do_request(%Request{} = request, from, %State{} = state) do
+  @impl true
+  def handle_info(message, %State{conn: nil} = state) do
+    {:stop, {:unexpected_message, message}, state}
+  end
+
+  @impl true
+  def handle_info(message, %State{conn: conn} = state) do
+    case Mint.HTTP.stream(conn, message) do
+      {:error, conn, %Mint.TransportError{reason: :closed}, _rest} ->
+        state = %State{state | conn: conn}
+        {:stop, :normal, state}
+
+      {:error, conn, reason, _rest} ->
+        state = %State{state | conn: conn}
+        {:stop, reason, state}
+
+      {:ok, conn, []} ->
+        state = %State{state | conn: conn}
+        timeout = determine_timeout(state)
+        {:noreply, state, timeout}
+
+      {:ok, conn, responses} ->
+        state = %State{state | conn: conn}
+        {:noreply, state, {:continue, {:handle_responses, responses}}}
+    end
+  end
+
+  defp do_start_request(%Request{} = request, from, %State{} = state) do
     case prepare_connection(request, state) do
       {:ok, state} ->
-        # go passive so messages can be captured manually
-        state = try_set_connection_mode(:passive, state)
-
         {request, is_stream?, body} =
           determine_if_body_should_stream(state.conn, request)
 
@@ -101,33 +207,27 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
             # if the request was done, then reset the just_connected state
             # it was only set initially to ensure that the request doesn't enter a reconnecting
             # loop
-            state = %{state | just_reconnected: false}
-            response = %Response{
-              protocol: Mint.HTTP.protocol(conn),
-              body_handler: request.response_body_handler,
-              body_handler_options: request.response_body_handler_options,
+            send(self(), {@connection_key, :send_body})
+
+            state = %{
+              state
+              | stage: :send,
+                just_reconnected: false,
+                conn: conn,
+                request: request,
+                active_request: %{
+                  ref: ref,
+                  from: from,
+                  is_stream?: is_stream?
+                },
+                response: %Response{
+                  ref: state.ref,
+                  protocol: Mint.HTTP.protocol(conn),
+                  body_handler: request.response_body_handler,
+                  body_handler_options: request.response_body_handler_options
+                }
             }
-            result = maybe_stream_request_body(conn, ref, request, is_stream?, [])
-
-            case result do
-              {:ok, conn, responses} ->
-                case read_responses(request.options[:mode], conn, ref, response, request, responses) do
-                  {:ok, conn, result} ->
-                    state = %{state | conn: conn}
-                    :ok = GenServer.reply(from, {:ok, result})
-                    state = checkin(state, :ok)
-                    {:noreply, state}
-
-                  {:error, conn, reason} ->
-                    handle_receive_error(conn, reason, request, from, state)
-
-                  {:error, conn, reason, _} ->
-                    handle_receive_error(conn, reason, request, from, state)
-                end
-
-              {:error, conn, reason} ->
-                handle_send_error(conn, reason, request, from, state)
-            end
+            {:noreply, state, state.lifespan}
 
           {:error, conn, reason} ->
             should_reconnect? =
@@ -153,7 +253,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
               # if attempting a reconnect, close the existing connection (if its open at all)
               # and try the request again
               state = close_and_clear_connection(state)
-              do_request(request, from, state)
+              do_start_request(request, from, state)
             else
               # otherwise the request should not be retried and this worker will emit an error
               handle_request_error(conn, reason, request, from, state)
@@ -163,16 +263,20 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
       {:error, reason, state} ->
         handle_connect_error(reason, request, from, state)
     end
-  rescue ex ->
-    msg = {:exception, ex, __STACKTRACE__}
-    :ok = GenServer.reply(from, msg)
-    state = checkin(state, msg)
-    {:noreply, state}
+  end
+
+  defp determine_timeout(%State{request: request} = state) do
+    case state.stage do
+      stage when stage in [:send, :idle] ->
+        state.lifespan
+
+      :recv ->
+        request.options[:recv_timeout]
+    end
   end
 
   defp checkin(%State{} = state, reason) do
-    # return to active mode to capture errors and closed messages
-    state = try_set_connection_mode(:active, state)
+    # return the connection to its parent pool
     :ok = GenServer.cast(state.pool_pid, {:checkin, self(), reason})
     state
   end
@@ -205,7 +309,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
       req_options = request.options
       connect_options = Keyword.merge(
         [
-          mode: req_options[:mode],
+          mode: :active,
           transport_opts: [
             timeout: req_options[:connect_timeout],
           ],
@@ -236,20 +340,6 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     %{state | conn: nil}
   end
 
-  defp try_set_connection_mode(_mode, %State{conn: nil} = state) do
-    state
-  end
-
-  defp try_set_connection_mode(mode, %State{} = state) do
-    case Mint.HTTP.set_mode(state.conn, mode) do
-      {:ok, conn} ->
-        %{state | conn: conn}
-
-      {:error, _} ->
-        state
-    end
-  end
-
   defp handle_request_error(conn, reason, request, from, %State{} = state) do
     state = %{state | conn: conn}
     ex = %RequestError{
@@ -259,7 +349,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     }
     :ok = GenServer.reply(from, {:error, ex})
     state = checkin(state, {:error, ex})
-    {:noreply, state}
+    {:noreply, state, state.lifespan}
   end
 
   defp handle_send_error(conn, reason, request, from, %State{} = state) do
@@ -271,7 +361,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     }
     :ok = GenServer.reply(from, {:error, ex})
     state = checkin(state, {:error, ex})
-    {:noreply, state}
+    {:noreply, state, state.lifespan}
   end
 
   defp handle_receive_error(conn, reason, request, from, %State{} = state) do
@@ -283,7 +373,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     }
     :ok = GenServer.reply(from, {:error, ex})
     state = checkin(state, {:error, ex})
-    {:noreply, state}
+    {:noreply, state, state.lifespan}
   end
 
   defp handle_connect_error(reason, request, from, %State{} = state) do
@@ -294,6 +384,6 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     }
     :ok = GenServer.reply(from, {:error, ex})
     state = checkin(state, {:error, ex})
-    {:noreply, state}
+    {:noreply, state, state.lifespan}
   end
 end

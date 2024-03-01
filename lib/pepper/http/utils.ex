@@ -8,7 +8,16 @@ defmodule Pepper.HTTP.Utils do
 
   import Mint.HTTP1.Parse
 
-  require SweetXml
+  @type http_method :: String.t()
+                     | :connect
+                     | :delete
+                     | :get
+                     | :head
+                     | :options
+                     | :patch
+                     | :post
+                     | :put
+                     | :trace
 
   def to_multipart_message(rows, state \\ {:headers, %Segment{}})
 
@@ -104,57 +113,32 @@ defmodule Pepper.HTTP.Utils do
     |> binary_part(0, len)
   end
 
-  def handle_xml_body(doc) do
+  @spec generate_random_binary(non_neg_integer()) :: binary()
+  def generate_random_binary(len) when is_integer(len) and len > 0 do
+    :crypto.strong_rand_bytes(len)
+  end
+
+  def handle_xml_body(doc) when is_tuple(doc) or is_list(doc) do
     doc =
       doc
       |> List.wrap()
-      |> Enum.map(fn item ->
-        record_type = elem(item, 0)
-        xml_item_to_map(record_type, item)
+      |> Enum.map(fn {_elem_name, _attributes, _children} = item ->
+        xml_item_to_map(item)
       end)
       |> deflate_xml_map()
 
     doc
   end
 
-  for name <- [
-      :xmlDecl,
-      :xmlAttribute,
-      :xmlNamespace,
-      :xmlNsNode,
-      :xmlElement,
-      :xmlText,
-      :xmlComment,
-      :xmlPI,
-      :xmlDocument,
-      :xmlObj,
-    ] do
-    def xml_item_to_map(unquote(name), item) do
-      SweetXml.unquote(name)(item)
-      |> xml_item_deep_to_map(unquote(name))
-    end
+  @spec xml_item_to_map(tuple()) :: tuple()
+  def xml_item_to_map({elem_name, _attributes, children}) do
+    {elem_name, Enum.map(children, fn item ->
+      xml_item_to_map(item)
+    end)}
   end
 
-  def xml_item_deep_to_map(item, :xmlElement) do
-    #namespace = xml_item_to_map(:xmlNamespace, item[:namespace])
-    #item = put_in(item[:namespace], namespace)
-    #put_in(item[:content], Enum.map(item[:content], fn item ->
-    #  xml_item_to_map(elem(item, 0), item)
-    #end))
-
-    {item[:expanded_name],
-      Enum.map(item[:content], fn item ->
-        xml_item_to_map(elem(item, 0), item)
-      end)
-    }
-  end
-
-  def xml_item_deep_to_map(item, :xmlNamespace) do
+  def xml_item_to_map(item) do
     item
-  end
-
-  def xml_item_deep_to_map(item, :xmlText) do
-    to_string(item[:value])
   end
 
   def deflate_xml_map([{_, _} | _] = list) when is_list(list) do
@@ -186,13 +170,23 @@ defmodule Pepper.HTTP.Utils do
     end)
   end
 
-  def normalize_http_method(:head), do: "HEAD"
+  def encode_query_params(nil) do
+    nil
+  end
+
+  def encode_query_params(query_params) when is_list(query_params) or is_map(query_params) do
+    Plug.Conn.Query.encode(query_params)
+  end
+
+  def normalize_http_method(:connect), do: "CONNECT"
+  def normalize_http_method(:delete), do: "DELETE"
   def normalize_http_method(:get), do: "GET"
+  def normalize_http_method(:head), do: "HEAD"
+  def normalize_http_method(:options), do: "OPTIONS"
   def normalize_http_method(:patch), do: "PATCH"
   def normalize_http_method(:post), do: "POST"
   def normalize_http_method(:put), do: "PUT"
-  def normalize_http_method(:delete), do: "DELETE"
-  def normalize_http_method(:options), do: "OPTIONS"
+  def normalize_http_method(:trace), do: "TRACE"
 
   def normalize_http_method(method) when is_binary(method) do
     String.upcase(method)

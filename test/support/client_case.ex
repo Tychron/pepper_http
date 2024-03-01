@@ -21,6 +21,48 @@ defmodule Pepper.HTTP.Support.ClientCase do
     end
   end
 
+  setup tags do
+    tags =
+      case Map.get(tags, :with_connection_pool, false) do
+        true ->
+          {:ok, pid} =
+            start_supervised({Pepper.HTTP.ConnectionManager.Pooled, [
+              Keyword.merge(
+                [{:pool_size, 10}],
+                Map.get(tags, :connection_pool_options, [])
+              ),
+              []
+            ]})
+
+          Map.put(tags, :connection_pool_pid, pid)
+
+        false ->
+          tags
+      end
+
+    protocol = String.to_existing_atom(Map.fetch!(tags, :protocol))
+
+    client_options = [
+      connect_options: [
+        protocols: [protocol]
+      ]
+    ]
+
+    client_options =
+      case tags[:connection_pool_pid] do
+        nil ->
+          client_options
+
+        pid ->
+          Keyword.merge(client_options, [
+            connection_manager: :pooled,
+            connection_manager_id: pid,
+          ])
+      end
+
+    Map.put(tags, :client_options, client_options)
+  end
+
   def bypass_for_configured_endpoint(application_name, field) do
     value = Application.get_env(application_name, field)
 

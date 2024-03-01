@@ -35,12 +35,10 @@ defmodule Pepper.HTTP.MixProject do
       {:plug, "~> 1.6"},
       # JSON Parser
       {:jason, "~> 1.2"},
-      # XML Parser
-      {:sweet_xml, "~> 0.6"},
-      # XML Encoder
-      {:xml_builder, "~> 2.0"},
+      # XML Decoder / Encoder
+      {:saxy, "~> 1.5"},
       # CSV
-      {:csv, "~> 2.0"},
+      {:csv, "~> 2.0 or ~> 3.0"},
       # HTTP Library
       {:mint, "~> 1.0"},
       # Certificate Store

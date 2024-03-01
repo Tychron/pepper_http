@@ -53,7 +53,13 @@ defmodule Pepper.HTTP.ResponseBodyHandler.File do
 
   @impl true
   def cancel(%Response{data: {_filename, file}} = response) do
-    :ok = File.close(file)
+    case File.close(file) do
+      :ok ->
+        :ok
+
+      {:error, :einval} ->
+        :ok
+    end
     {:ok, %{response | data: nil}}
   end
 
