@@ -14,6 +14,8 @@ jobs:
     name: Build and Test
     runs-on: ubuntu-20.04
     strategy:
+      # Don't crash if the other workers fail (i.e. 27+1.17 currently)
+      fail-fast: false
       matrix:
         otp: ['25', '26', '27']
         elixir: ['1.15', '1.16', '1.17']
