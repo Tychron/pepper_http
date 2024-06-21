@@ -215,7 +215,7 @@ defmodule Pepper.HTTP.Utils do
   end
 
   # Percent-encoding is not case sensitive so we have to account for lowercase and uppercase.
-  @hex_characters '0123456789abcdefABCDEF'
+  @hex_characters ~c'0123456789abcdefABCDEF'
 
   def validate_target!(target), do: validate_target!(target, target)
 
@@ -250,7 +250,7 @@ defmodule Pepper.HTTP.Utils do
   def validate_header_value!(name, value) do
     _ =
       for <<char <- value>> do
-        unless is_vchar(char) or char in '\s\t' do
+        unless is_vchar(char) or char in ~c'\s\t' do
           throw({:mint, {:invalid_header_value, name, value}})
         end
       end
