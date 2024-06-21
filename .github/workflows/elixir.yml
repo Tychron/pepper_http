@@ -28,8 +28,8 @@ jobs:
       uses: actions/cache@v3
       with:
         path: deps
-        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-        restore-keys: ${{ runner.os }}-mix-
+        key: otp-${{matrix.otp}}-ex-${{matrix.elixir}}-${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+        restore-keys: otp-${{matrix.otp}}-ex-${{matrix.elixir}}-${{ runner.os }}-mix-
     - name: Install dependencies
       run: mix deps.get
     - name: Run tests
