@@ -29,8 +29,6 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
 
   import Pepper.HTTP.ConnectionManager.Utils
 
-  @connection_key :"$connection"
-
   def start_link(pool_pid, ref, opts, process_options \\ []) do
     GenServer.start_link(__MODULE__, {pool_pid, ref, opts}, process_options)
   end
@@ -106,6 +104,33 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
   end
 
   @impl true
+  def handle_continue(
+    :send_body,
+    %State{
+      conn: conn,
+      request: request,
+      active_request: %{
+        from: from,
+        ref: ref,
+        is_stream?: is_stream?,
+      },
+    } = state
+  ) do
+    case maybe_stream_request_body(:active, conn, ref, request, is_stream?, []) do
+      {:ok, conn, responses} ->
+        state = %{
+          state
+          | stage: :recv,
+            conn: conn,
+        }
+        {:noreply, state, {:continue, {:handle_responses, responses}}}
+
+      {:error, conn, reason} ->
+        handle_send_error(conn, reason, request, from, state)
+    end
+  end
+
+  @impl true
   def terminate(_reason, %State{} = state) do
     if state.conn do
       Mint.HTTP.close(state.conn)
@@ -143,35 +168,8 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
   end
 
   @impl true
-  def handle_info(
-    {@connection_key, :send_body},
-    %State{
-      conn: conn,
-      request: request,
-      active_request: %{
-        from: from,
-        ref: ref,
-        is_stream?: is_stream?,
-      },
-    } = state
-  ) do
-    case maybe_stream_request_body(:active, conn, ref, request, is_stream?, []) do
-      {:ok, conn, responses} ->
-        state = %{
-          state
-          | stage: :recv,
-            conn: conn,
-        }
-        {:noreply, state, {:continue, {:handle_responses, responses}}}
-
-      {:error, conn, reason} ->
-        handle_send_error(conn, reason, request, from, state)
-    end
-  end
-
-  @impl true
   def handle_info(message, %State{conn: nil} = state) do
-    {:stop, {:unexpected_message, message}, state}
+    {:stop, {:unexpected_message_on_closed_connection, message}, state}
   end
 
   @impl true
@@ -204,14 +202,12 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
 
         case Mint.HTTP.request(state.conn, request.method, request.path, request.headers, body) do
           {:ok, conn, ref} ->
-            # if the request was done, then reset the just_connected state
-            # it was only set initially to ensure that the request doesn't enter a reconnecting
-            # loop
-            send(self(), {@connection_key, :send_body})
-
             state = %{
               state
               | stage: :send,
+                # if the request was done, then reset the just_connected state
+                # it was only set initially to ensure that the request doesn't enter a reconnecting
+                # loop
                 just_reconnected: false,
                 conn: conn,
                 request: request,
@@ -227,7 +223,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
                   body_handler_options: request.response_body_handler_options
                 }
             }
-            {:noreply, state, state.lifespan}
+            {:noreply, state, {:continue, :send_body}}
 
           {:error, conn, reason} ->
             should_reconnect? =

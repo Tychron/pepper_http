@@ -50,6 +50,8 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   alias Pepper.HTTP.SendError
   alias Pepper.HTTP.ConnectError
 
+  import Pepper.HTTP.Utils, only: [safe_reduce_ets_table: 3]
+
   @type conn_key :: {scheme::atom(), host::String.t(), port::integer(), Keyword.t()}
 
   @type connection_id :: GenServer.server()
@@ -178,7 +180,17 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
 
   @impl true
   def terminate(_reason, %State{} = state) do
-    # Process.flag(:trap_exit, false)
+    Process.flag(:trap_exit, false)
+
+    safe_reduce_ets_table(state.available_connections, nil, fn {_key, pid}, acc ->
+      Process.exit(pid, :normal)
+      acc
+    end)
+
+    safe_reduce_ets_table(state.busy_connections, nil, fn {_key, {pid, _from}}, acc ->
+      Process.exit(pid, :normal)
+      acc
+    end)
 
     :ets.delete(state.busy_connections)
     :ets.delete(state.available_connections)
