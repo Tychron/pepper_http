@@ -7,17 +7,17 @@ defmodule Pepper.HTTP.AcceptEncodingHeaderTest do
   describe "parse/1" do
     test "can correctly parse" do
       assert [
-        {:content_coding, '*', 1, []}
+        {:content_coding, ~c'*', 1, []}
       ] = :accept_encoding_header.parse("*")
 
       assert [
-        {:content_coding, 'identity', 1, []}
+        {:content_coding, ~c'identity', 1, []}
       ] = :accept_encoding_header.parse("identity")
 
       assert [
-        {:content_coding, 'identity', 1, []},
-        {:content_coding, 'deflate', 1, []},
-        {:content_coding, 'gzip', 1, []},
+        {:content_coding, ~c'identity', 1, []},
+        {:content_coding, ~c'deflate', 1, []},
+        {:content_coding, ~c'gzip', 1, []},
       ] = :accept_encoding_header.parse("identity, deflate, gzip")
     end
   end
