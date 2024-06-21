@@ -43,7 +43,7 @@ defmodule Pepper.HTTP.MixProject do
       {:mint, "~> 1.0"},
       # Certificate Store
       {:castore, "~> 0.1 or ~> 1.0"},
-      {:bypass, "~> 1.0 or ~> 2.1", [only: :test]},
+      {:bypass, "~> 2.1", git: "https://github.com/IceDragon200/bypass", branch: "awaiting-patch", only: [:test]},
     ]
   end
 

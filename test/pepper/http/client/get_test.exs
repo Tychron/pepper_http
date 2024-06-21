@@ -100,10 +100,16 @@ defmodule Pepper.HTTP.Client.GetTest do
         test "can handle a timeout while receiving data from endpoint", %{client_options: client_options} do
           bypass = Bypass.open()
 
+          parent = self()
           Bypass.expect bypass, "GET", "/path/to/glory", fn conn ->
             # purposely stall
-            Process.sleep 3_000
-
+            send(parent, {:stalling, self()})
+            receive do
+              :abort ->
+                :ok
+            after 1000 ->
+              :ok
+            end
             send_resp(conn, 200, "")
           end
 
@@ -117,10 +123,11 @@ defmodule Pepper.HTTP.Client.GetTest do
               headers,
               nil,
               # timeout is intentionally lower than sleep timer in server
-              Keyword.merge(client_options, [recv_timeout: 1000])
+              Keyword.merge(client_options, [recv_timeout: 200])
             )
 
-          Bypass.down bypass
+          assert_received {:stalling, bypass_session_pid}
+          send bypass_session_pid, :abort
         end
       end
     end)
