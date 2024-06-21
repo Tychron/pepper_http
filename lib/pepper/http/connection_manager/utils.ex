@@ -4,24 +4,29 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
 
   import Pepper.HTTP.Utils
 
-  @spec timespan(function()) :: {{tstart::integer(), tend::integer()}, result::any()}
-  def timespan(callback) do
-    tstart = :erlang.monotonic_time(:microsecond)
+  @type mode :: :passive | :active
+
+  @type conn :: Mint.Core.Conn.conn()
+
+  @spec timespan(function(), System.time_unit()) ::
+    {{start_at::integer(), end_at::integer()}, result::any()}
+  def timespan(callback, unit \\ :microsecond) when is_function(callback, 0) do
+    start_at = :erlang.monotonic_time(unit)
     result = callback.()
-    tend = :erlang.monotonic_time(:microsecond)
-    {{tstart, tend}, result}
+    end_at = :erlang.monotonic_time(unit)
+    {{start_at, end_at}, result}
   end
 
-  def read_responses(mode, conn, ref, response, %Request{} = request, []) do
+  @spec read_responses(mode(), conn(), reference(), Response.t(), Request.t(), [any()]) ::
+    {:ok, conn(), Response.t()}
+    | {:error, conn(), reason::any()}
+  def read_responses(mode, conn, ref, %Response{} = response, %Request{} = request, []) do
     case read_response(mode, conn, ref, request) do
       {:ok, conn, http_responses} ->
         read_responses(mode, conn, ref, response, request, http_responses)
 
-      {:error, conn, reason} ->
-        {:error, conn, reason, []}
-
-      {:error, _conn, _reason, _responses} = err ->
-        err
+      {:error, conn, reason, []} ->
+        {:error, conn, reason}
     end
   end
 
@@ -41,21 +46,18 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
         {:ok, conn, response}
 
       {:error, conn, reason} ->
-        {:error, conn, reason, http_responses}
+        {:error, conn, reason}
     end
   end
 
-  @spec read_response(:passive | :active, Mint.Conn.t(), reference(), Pepper.HTTP.Request.t()) ::
-    {:ok, Mint.Conn.t(), [any()]}
-    | {:error, Mint.Conn.t(), reasonn::any(), responses::list()}
+  @spec read_response(:passive | :active, conn(), reference(), Request.t()) ::
+    {:ok, conn(), [any()]}
+    | {:error, conn(), reasonn::any(), responses::list()}
   def read_response(:passive, conn, _ref, %Request{} = request) do
     recv_timeout = Keyword.fetch!(request.options, :recv_timeout)
     case Mint.HTTP.recv(conn, 0, recv_timeout) do
       {:ok, _conn, _responses} = res ->
         res
-
-      {:error, conn, reason} ->
-        {:error, conn, reason, []}
 
       {:error, _conn, _reason, _responses} = err ->
         err
@@ -70,11 +72,11 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
           {:ok, _conn, _responses} = res ->
             res
 
-          {:error, _conn, _reason} = err ->
+          {:error, _conn, _reason, _responses} = err ->
             err
         end
     after recv_timeout ->
-      {:error, conn, :timeout}
+      {:error, conn, :timeout, []}
     end
   end
 

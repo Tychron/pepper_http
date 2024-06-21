@@ -19,6 +19,37 @@ defmodule Pepper.HTTP.Utils do
                      | :put
                      | :trace
 
+  def safe_reduce_ets_table(table, acc, callback) do
+    try do
+      :ets.safe_fixtable(table, true)
+      reduce_ets_table(table, acc, callback)
+    after
+      :ets.safe_fixtable(table, false)
+    end
+  end
+
+  def reduce_ets_table(table, acc, callback) do
+    key = :ets.first(table)
+    do_reduce_ets_table(key, table, acc, callback)
+  end
+
+  defp do_reduce_ets_table(:'$end_of_table', _table, acc, _callback) do
+    acc
+  end
+
+  defp do_reduce_ets_table(key, table, acc, callback) do
+    acc =
+      case :ets.lookup(table, key) do
+        [] ->
+          acc
+
+        [{^key, _value} = obj] ->
+          callback.(obj, acc)
+      end
+
+    do_reduce_ets_table(:ets.next(table, key), table, acc, callback)
+  end
+
   def to_multipart_message(rows, state \\ {:headers, %Segment{}})
 
   def to_multipart_message([], {_, %Segment{} = segment}) do
