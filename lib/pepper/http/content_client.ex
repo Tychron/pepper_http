@@ -55,14 +55,11 @@ defmodule Pepper.HTTP.ContentClient do
 
   @type options :: [request_option()]
 
-  @type response_body :: {:json, term()}
-                       | {:xmldoc, term()}
-                       | {:xml, term()}
-                       | {:text, term()}
-                       | {:csv, term()}
+  @type response_body :: {:unaccepted, term()}
                        | {:unk, term()}
-                       | {:unaccepted, term()}
                        | {{:malformed, term()}, term()}
+                       # For all other cases
+                       | {atom(), term()}
 
   @type response_error :: Pepper.HTTP.BodyError.t() | Client.response_error()
 
