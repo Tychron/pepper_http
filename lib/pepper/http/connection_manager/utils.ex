@@ -220,8 +220,8 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
         {:ok, conn, next_responses} ->
           {:halt, {:unexpected_responses, conn, responses ++ next_responses}}
 
-        {:error, _conn, _reason} = err ->
-          {:halt, err}
+        {:error, conn, reason, _responses} ->
+          {:halt, {:error, conn, reason}}
       end
     else
       blob = IO.iodata_to_binary(blob)
