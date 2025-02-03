@@ -107,6 +107,9 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
           {:ok, response} ->
             {:done, %{response | request: request}}
         end
+
+      {:error, ^ref, reason} ->
+        {:error, conn, reason}
     end
   end
 
