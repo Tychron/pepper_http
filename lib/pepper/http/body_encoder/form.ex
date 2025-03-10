@@ -1,7 +1,7 @@
 defmodule Pepper.HTTP.BodyEncoder.Form do
   import Pepper.HTTP.Utils
 
-  def encode_body(items, _options) do
+  def encode_body(items, _options) when is_list(items) do
     boundary = generate_boundary()
     boundary = "------------#{boundary}"
 

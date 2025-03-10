@@ -3,7 +3,7 @@ defmodule Pepper.HTTP.BodyEncoder.FormStream do
 
   import Pepper.HTTP.Utils
 
-  def encode_body(items, _options) do
+  def encode_body(items, _options) when is_list(items) do
     boundary = generate_boundary()
     boundary = "------------#{boundary}"
 
@@ -55,11 +55,27 @@ defmodule Pepper.HTTP.BodyEncoder.FormStream do
   end
 
   defp form_data_stream(
-    {:send_item_start, boundary, {name, headers, stream}, items}
+    {:send_item_start, boundary, {name, headers, {:chunked, _stream} = res}, items}
   ) do
     headers = Proplist.merge([
       {"content-disposition", "form-data; name=\"#{name}\""},
       {"transfer-encoding", "chunked"},
+    ], headers)
+
+    iolist = [
+      "--",boundary,"\r\n",
+      encode_headers(headers),
+      "\r\n"
+    ]
+
+    {iolist, {:send_item_body, boundary, {name, headers, res}, items}}
+  end
+
+  defp form_data_stream(
+    {:send_item_start, boundary, {name, headers, stream}, items}
+  ) do
+    headers = Proplist.merge([
+      {"content-disposition", "form-data; name=\"#{name}\""},
     ], headers)
 
     iolist = [
@@ -75,6 +91,12 @@ defmodule Pepper.HTTP.BodyEncoder.FormStream do
     {:send_item_body, boundary, {_name, _headers, body}, items}
   ) when is_binary(body) do
     {[body, "\r\n"], {:next_item, boundary, items}}
+  end
+
+  defp form_data_stream(
+    {:send_item_body, boundary, {_name, _headers, {:chunked, stream}} = item, items}
+  ) do
+    {stream, {:end_current_item, boundary, item, items}}
   end
 
   defp form_data_stream(
