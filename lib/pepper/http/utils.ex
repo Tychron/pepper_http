@@ -19,6 +19,10 @@ defmodule Pepper.HTTP.Utils do
                      | :put
                      | :trace
 
+  @type ets_reducer :: (obj::tuple(), acc::any() -> acc::any())
+
+  @spec safe_reduce_ets_table(:ets.table(), any(), ets_reducer()) ::
+    (acc::any())
   def safe_reduce_ets_table(table, acc, callback) do
     try do
       :ets.safe_fixtable(table, true)
@@ -28,26 +32,28 @@ defmodule Pepper.HTTP.Utils do
     end
   end
 
+  @spec reduce_ets_table(:ets.table(), any(), ets_reducer()) ::
+    (acc::any())
   def reduce_ets_table(table, acc, callback) do
-    key = :ets.first(table)
-    do_reduce_ets_table(key, table, acc, callback)
+    match_spec = [
+      {
+        :"$1",
+        [],
+        [:"$_"],
+      }
+    ]
+    do_reduce_ets_table_bag(:ets.select(table, match_spec, 1), acc, callback)
   end
 
-  defp do_reduce_ets_table(:'$end_of_table', _table, acc, _callback) do
-    acc
-  end
+  defp do_reduce_ets_table_bag(res, acc, callback) do
+    case res do
+      :"$end_of_table" ->
+        acc
 
-  defp do_reduce_ets_table(key, table, acc, callback) do
-    acc =
-      case :ets.lookup(table, key) do
-        [] ->
-          acc
-
-        [{^key, _value} = obj] ->
-          callback.(obj, acc)
-      end
-
-    do_reduce_ets_table(:ets.next(table, key), table, acc, callback)
+      {[row], continuation} ->
+        acc = callback.(row, acc)
+        do_reduce_ets_table_bag(:ets.select(continuation), acc, callback)
+    end
   end
 
   def to_multipart_message(rows, state \\ {:headers, %Segment{}})
