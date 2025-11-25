@@ -201,12 +201,17 @@ defmodule Pepper.HTTP.Utils do
     end)
   end
 
-  def encode_query_params(nil) do
+  @spec encode_query_params(map() | Keyword.t(), :default | :duplicate) :: String.t()
+  def encode_query_params(nil, _encoding) do
     nil
   end
 
-  def encode_query_params(query_params) when is_list(query_params) or is_map(query_params) do
+  def encode_query_params(query_params, :default) when is_list(query_params) or is_map(query_params) do
     Plug.Conn.Query.encode(query_params)
+  end
+
+  def encode_query_params(query_params, :duplicate) when is_list(query_params) or is_map(query_params) do
+    Pepper.HTTP.Utils.QP.encode(query_params)
   end
 
   def normalize_http_method(:connect), do: "CONNECT"

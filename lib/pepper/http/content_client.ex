@@ -51,6 +51,7 @@ defmodule Pepper.HTTP.ContentClient do
           | {:auth_method, String.t() | :none | :basic | :bearer}
           | {:auth_identity, String.t()}
           | {:auth_secret, String.t()}
+          | {:query_params_encoding, :default | :duplicate}
           | Client.request_option()
 
   @type options :: [request_option()]
@@ -104,9 +105,11 @@ defmodule Pepper.HTTP.ContentClient do
   @spec request(method(), url(), query_params(), headers(), body(), options()) :: response()
   def request(method, url, query_params, headers, body, options \\ []) do
     {encoder_options, options} = Keyword.pop(options, :encoder_options, @no_options)
+    {uri_options, options} = Keyword.split(options, [:query_params_encoding])
+
     case BodyEncoder.encode_body(body, encoder_options) do
       {:ok, {body_headers, blob}} ->
-        case encode_new_uri(url, query_params) do
+        case encode_new_uri(url, query_params, uri_options) do
           {:ok, new_uri} ->
             all_headers = body_headers ++ Enum.map(headers, fn {key, value} ->
               {String.downcase(key), value}
@@ -155,11 +158,11 @@ defmodule Pepper.HTTP.ContentClient do
     {:error, reason}
   end
 
-  @spec encode_new_uri(URI.t() | String.t(), map() | Keyword.t()) :: URI.t()
-  defp encode_new_uri(url, query_params) do
+  @spec encode_new_uri(URI.t() | String.t(), map() | Keyword.t(), Keyword.t()) :: URI.t()
+  defp encode_new_uri(url, query_params, options) do
     case URI.new(url) do
       {:ok, %URI{} = uri} ->
-        case encode_query_params(query_params) do
+        case encode_query_params(query_params, Keyword.get(options, :query_params_encoding, :default)) do
           nil ->
             {:ok, uri}
 
