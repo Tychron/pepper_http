@@ -263,7 +263,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
             {:noreply, state}
         end
 
-      :'$end_of_table' ->
+      :"$end_of_table" ->
         Logger.warning "unexpected checkin", pid: inspect(pid), reason: inspect(reason)
         {:noreply, state}
     end
@@ -278,14 +278,14 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
         GenServer.reply(from, {:error, reason})
         {:noreply, state}
 
-      :'$end_of_table' ->
+      :"$end_of_table" ->
         case get_available_connection_by_pid(pid, state) do
           {[{_key, ^pid} = pair], _continuation} ->
             state = %{state | total_size: state.total_size - 1}
             state = remove_available_connection(pair, state)
             {:noreply, state}
 
-          :'$end_of_table' ->
+          :"$end_of_table" ->
             Logger.error "an unknown process has terminated", reason: inspect(reason)
             #{:stop, {:unexpected_exit, pid}, state}
             {:noreply, state}
@@ -330,7 +330,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
         state = remove_available_connection(pair, state)
         {:ok, pair, state}
 
-      :'$end_of_table' ->
+      :"$end_of_table" ->
         # there are no available connections
         {:empty, state}
     end
@@ -354,9 +354,9 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   defp reclaim_available_connection(key, %State{} = state) do
     match_spec = [
       {
-        {:'$1', :_},
+        {:"$1", :_},
         [],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
@@ -366,7 +366,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
         state = remove_available_connection(pair, state)
         {:ok, {key, pid}, state}
 
-      :'$end_of_table' ->
+      :"$end_of_table" ->
         {:empty, state}
     end
   end
@@ -378,11 +378,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def get_available_connection_by_pid(pid, %State{} = state) do
     match_spec = [
       {
-        {:_, :'$1'},
+        {:_, :"$1"},
         [
-          {:==, :'$1', {:const, pid}}
+          {:==, :"$1", {:const, pid}}
         ],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
@@ -392,11 +392,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def get_available_connection_by_key(key, %State{} = state) do
     match_spec = [
       {
-        {:'$1', :_},
+        {:"$1", :_},
         [
-          {:==, :'$1', {:const, key}}
+          {:==, :"$1", {:const, key}}
         ],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
@@ -406,11 +406,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def get_busy_connection_by_pid(pid, %State{} = state) do
     match_spec = [
       {
-        {:_, {:'$1', :_}},
+        {:_, {:"$1", :_}},
         [
-          {:==, :'$1', {:const, pid}}
+          {:==, :"$1", {:const, pid}}
         ],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
