@@ -232,7 +232,7 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
 
       {next_blob, rest} =
         case blob do
-          <<next_blob::binary-size(min_window_size), rest::binary>> ->
+          <<next_blob::binary-size(^min_window_size), rest::binary>> ->
             {next_blob, rest}
 
           <<next_blob::binary>> ->

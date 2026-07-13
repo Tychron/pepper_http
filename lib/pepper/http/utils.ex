@@ -312,7 +312,7 @@ defmodule Pepper.HTTP.Utils do
 
         bin when is_binary(bin) ->
           case bin do
-            <<chunk::binary-size(chunk_size), rest::binary>> ->
+            <<chunk::binary-size(^chunk_size), rest::binary>> ->
               {[chunk], rest}
 
             chunk when is_binary(chunk) ->
