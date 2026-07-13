@@ -9,29 +9,56 @@ on:
 permissions:
   contents: read
 
+env:
+  MIX_ENV: test
+
 jobs:
   test:
-    name: Build and Test
-    runs-on: ubuntu-20.04
+    name: OTP ${{ matrix.otp }} / Elixir ${{ matrix.elixir }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
-      # Don't crash if the other workers fail (i.e. 27+1.17 currently)
       fail-fast: false
       matrix:
-        otp: ['25', '26', '27']
-        elixir: ['1.15', '1.16', '1.17']
+        # Limited to the OTP majors requested here and only upstream-supported
+        # Elixir/OTP pairs from the official Elixir docs compatibility table.
+        include:
+          - otp: "27"
+            elixir: "1.17"
+          - otp: "27"
+            elixir: "1.18"
+          - otp: "27"
+            elixir: "1.19"
+          - otp: "28"
+            elixir: "1.19"
+          - otp: "27"
+            elixir: "1.20"
+          - otp: "28"
+            elixir: "1.20"
+          - otp: "29"
+            elixir: "1.20"
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Elixir
+    - name: Set up Erlang/OTP and Elixir
+      id: setup-beam
       uses: erlef/setup-beam@v1
       with:
-        otp-version: ${{matrix.otp}} # Define the OTP version [required]
-        elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
-    - name: Restore dependencies cache
-      uses: actions/cache@v3
+        otp-version: ${{ matrix.otp }}
+        elixir-version: ${{ matrix.elixir }}
+        version-type: loose
+    - name: Restore dependencies and build cache
+      uses: actions/cache@v4
       with:
-        path: deps
-        key: otp-${{matrix.otp}}-ex-${{matrix.elixir}}-${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-        restore-keys: otp-${{matrix.otp}}-ex-${{matrix.elixir}}-${{ runner.os }}-mix-
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-mix-${{ hashFiles('mix.exs', 'mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-mix-
+    - name: Install Hex
+      run: mix local.hex --force
+    - name: Install Rebar
+      run: mix local.rebar --force
     - name: Install dependencies
       run: mix deps.get
     - name: Run tests
