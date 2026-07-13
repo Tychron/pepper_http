@@ -8,7 +8,53 @@ defmodule Pepper.HTTP.Utils do
 
   import Mint.HTTP1.Parse
 
-  require SweetXml
+  @type http_method :: String.t()
+                     | :connect
+                     | :delete
+                     | :get
+                     | :head
+                     | :options
+                     | :patch
+                     | :post
+                     | :put
+                     | :trace
+
+  @type ets_reducer :: (obj::tuple(), acc::any() -> acc::any())
+
+  @spec safe_reduce_ets_table(:ets.table(), any(), ets_reducer()) ::
+    (acc::any())
+  def safe_reduce_ets_table(table, acc, callback) do
+    try do
+      :ets.safe_fixtable(table, true)
+      reduce_ets_table(table, acc, callback)
+    after
+      :ets.safe_fixtable(table, false)
+    end
+  end
+
+  @spec reduce_ets_table(:ets.table(), any(), ets_reducer()) ::
+    (acc::any())
+  def reduce_ets_table(table, acc, callback) do
+    match_spec = [
+      {
+        :"$1",
+        [],
+        [:"$_"],
+      }
+    ]
+    do_reduce_ets_table_bag(:ets.select(table, match_spec, 1), acc, callback)
+  end
+
+  defp do_reduce_ets_table_bag(res, acc, callback) do
+    case res do
+      :"$end_of_table" ->
+        acc
+
+      {[row], continuation} ->
+        acc = callback.(row, acc)
+        do_reduce_ets_table_bag(:ets.select(continuation), acc, callback)
+    end
+  end
 
   def to_multipart_message(rows, state \\ {:headers, %Segment{}})
 
@@ -104,57 +150,32 @@ defmodule Pepper.HTTP.Utils do
     |> binary_part(0, len)
   end
 
-  def handle_xml_body(doc) do
+  @spec generate_random_binary(non_neg_integer()) :: binary()
+  def generate_random_binary(len) when is_integer(len) and len > 0 do
+    :crypto.strong_rand_bytes(len)
+  end
+
+  def handle_xml_body(doc) when is_tuple(doc) or is_list(doc) do
     doc =
       doc
       |> List.wrap()
-      |> Enum.map(fn item ->
-        record_type = elem(item, 0)
-        xml_item_to_map(record_type, item)
+      |> Enum.map(fn {_elem_name, _attributes, _children} = item ->
+        xml_item_to_map(item)
       end)
       |> deflate_xml_map()
 
     doc
   end
 
-  for name <- [
-      :xmlDecl,
-      :xmlAttribute,
-      :xmlNamespace,
-      :xmlNsNode,
-      :xmlElement,
-      :xmlText,
-      :xmlComment,
-      :xmlPI,
-      :xmlDocument,
-      :xmlObj,
-    ] do
-    def xml_item_to_map(unquote(name), item) do
-      SweetXml.unquote(name)(item)
-      |> xml_item_deep_to_map(unquote(name))
-    end
+  @spec xml_item_to_map(tuple()) :: tuple()
+  def xml_item_to_map({elem_name, _attributes, children}) do
+    {elem_name, Enum.map(children, fn item ->
+      xml_item_to_map(item)
+    end)}
   end
 
-  def xml_item_deep_to_map(item, :xmlElement) do
-    #namespace = xml_item_to_map(:xmlNamespace, item[:namespace])
-    #item = put_in(item[:namespace], namespace)
-    #put_in(item[:content], Enum.map(item[:content], fn item ->
-    #  xml_item_to_map(elem(item, 0), item)
-    #end))
-
-    {item[:expanded_name],
-      Enum.map(item[:content], fn item ->
-        xml_item_to_map(elem(item, 0), item)
-      end)
-    }
-  end
-
-  def xml_item_deep_to_map(item, :xmlNamespace) do
+  def xml_item_to_map(item) do
     item
-  end
-
-  def xml_item_deep_to_map(item, :xmlText) do
-    to_string(item[:value])
   end
 
   def deflate_xml_map([{_, _} | _] = list) when is_list(list) do
@@ -186,13 +207,28 @@ defmodule Pepper.HTTP.Utils do
     end)
   end
 
-  def normalize_http_method(:head), do: "HEAD"
+  @spec encode_query_params(map() | Keyword.t(), :default | :duplicate) :: String.t()
+  def encode_query_params(nil, _encoding) do
+    nil
+  end
+
+  def encode_query_params(query_params, :default) when is_list(query_params) or is_map(query_params) do
+    Plug.Conn.Query.encode(query_params)
+  end
+
+  def encode_query_params(query_params, :duplicate) when is_list(query_params) or is_map(query_params) do
+    Pepper.HTTP.Utils.QP.encode(query_params)
+  end
+
+  def normalize_http_method(:connect), do: "CONNECT"
+  def normalize_http_method(:delete), do: "DELETE"
   def normalize_http_method(:get), do: "GET"
+  def normalize_http_method(:head), do: "HEAD"
+  def normalize_http_method(:options), do: "OPTIONS"
   def normalize_http_method(:patch), do: "PATCH"
   def normalize_http_method(:post), do: "POST"
   def normalize_http_method(:put), do: "PUT"
-  def normalize_http_method(:delete), do: "DELETE"
-  def normalize_http_method(:options), do: "OPTIONS"
+  def normalize_http_method(:trace), do: "TRACE"
 
   def normalize_http_method(method) when is_binary(method) do
     String.upcase(method)
@@ -221,7 +257,7 @@ defmodule Pepper.HTTP.Utils do
   end
 
   # Percent-encoding is not case sensitive so we have to account for lowercase and uppercase.
-  @hex_characters '0123456789abcdefABCDEF'
+  @hex_characters ~c'0123456789abcdefABCDEF'
 
   def validate_target!(target), do: validate_target!(target, target)
 
@@ -256,7 +292,7 @@ defmodule Pepper.HTTP.Utils do
   def validate_header_value!(name, value) do
     _ =
       for <<char <- value>> do
-        unless is_vchar(char) or char in '\s\t' do
+        unless is_vchar(char) or char in ~c'\s\t' do
           throw({:mint, {:invalid_header_value, name, value}})
         end
       end
@@ -276,7 +312,7 @@ defmodule Pepper.HTTP.Utils do
 
         bin when is_binary(bin) ->
           case bin do
-            <<chunk::binary-size(chunk_size), rest::binary>> ->
+            <<chunk::binary-size(^chunk_size), rest::binary>> ->
               {[chunk], rest}
 
             chunk when is_binary(chunk) ->

@@ -13,6 +13,7 @@ defmodule Pepper.HTTP.Request do
     response_body_handler: nil,
     response_body_handler_options: nil,
     options: nil,
+    time: nil,
   ]
 
   @type t :: %__MODULE__{
@@ -29,5 +30,6 @@ defmodule Pepper.HTTP.Request do
     response_body_handler: module(),
     response_body_handler_options: any(),
     options: Keyword.t(),
+    time: nil,
   }
 end

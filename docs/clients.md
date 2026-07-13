@@ -85,7 +85,7 @@ case result do
       # Content-Type: application/xml
       # Content-Type: text/xml
       {:xml, doc} ->
-        # SweetXml will be used to parse the blob and returns the document
+        # `Saxy.SimpleForm.parse_string/1` will be used to parse the blob and returns the document
         :ok
 
       {:xmldoc, doc} ->

@@ -5,9 +5,18 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
       available_connections: nil,
       default_lifespan: nil,
       pool_size: nil,
+      total_size: 0,
       busy_size: 0,
       available_size: 0,
     ]
+
+    @type t :: %__MODULE__{
+      busy_connections: :ets.table(),
+      available_connections: :ets.table(),
+      total_size: non_neg_integer(),
+      busy_size: non_neg_integer(),
+      available_size: non_neg_integer(),
+    }
   end
 
   @moduledoc """
@@ -40,6 +49,8 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   alias Pepper.HTTP.RequestError
   alias Pepper.HTTP.SendError
   alias Pepper.HTTP.ConnectError
+
+  import Pepper.HTTP.Utils, only: [safe_reduce_ets_table: 3]
 
   @type conn_key :: {scheme::atom(), host::String.t(), port::integer(), Keyword.t()}
 
@@ -87,6 +98,10 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
     end
   end
 
+  def close_all(server, reason \\ :normal, timeout \\ :infinity) do
+    GenServer.call(server, {:close_all, reason}, timeout)
+  end
+
   @spec get_stats(connection_id(), timeout()) :: map()
   def get_stats(server, timeout \\ 15_000) do
     GenServer.call(server, :get_stats, timeout)
@@ -98,26 +113,59 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
     options
     |> Keyword.put_new(:pool_size, 100)
     |> Keyword.put_new(:default_lifespan, 30_000)
+    |> validate_start_options([])
+  end
+
+  defp validate_start_options([], acc) do
+    {:ok, Enum.reverse(acc)}
+  end
+
+  defp validate_start_options(
+    [{:pool_size, pool_size} = pair | rest],
+    acc
+  ) when is_integer(pool_size) and pool_size > 0 do
+    validate_start_options(rest, [pair | acc])
+  end
+
+  defp validate_start_options(
+    [{:default_lifespan, lifespan} = pair | rest],
+    acc
+  ) when is_integer(lifespan) and lifespan > 0 do
+    validate_start_options(rest, [pair | acc])
+  end
+
+  defp validate_start_options([value | _rest], _acc) do
+    {:error, {:unexpected_start_option, value}}
   end
 
   @spec start(start_options(), GenServer.options()) :: GenServer.on_start()
   def start(opts, process_options \\ []) when is_list(opts) and is_list(process_options) do
-    opts = patch_start_options(opts)
-    GenServer.start(__MODULE__, opts, process_options)
+    case patch_start_options(opts) do
+      {:ok, opts} ->
+        GenServer.start(__MODULE__, opts, process_options)
+
+      {:error, _} = err ->
+        err
+    end
   end
 
   @spec start_link(start_options(), GenServer.options()) :: GenServer.on_start()
   def start_link(opts, process_options \\ []) when is_list(opts) and is_list(process_options) do
-    opts = patch_start_options(opts)
-    GenServer.start_link(__MODULE__, opts, process_options)
+    case patch_start_options(opts) do
+      {:ok, opts} ->
+        GenServer.start_link(__MODULE__, opts, process_options)
+
+      {:error, _} = err ->
+        err
+    end
   end
 
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
 
-    available_connections = :ets.new(:available_connections, [:duplicate_bag, :private])
-    busy_connections = :ets.new(:busy_connections, [:duplicate_bag, :private])
+    available_connections = :ets.new(:available_connections, [:bag, :private])
+    busy_connections = :ets.new(:busy_connections, [:bag, :private])
 
     state =
       %State{
@@ -131,8 +179,28 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   end
 
   @impl true
+  def terminate(_reason, %State{} = state) do
+    Process.flag(:trap_exit, false)
+
+    safe_reduce_ets_table(state.available_connections, nil, fn {_key, pid}, acc ->
+      Process.exit(pid, :normal)
+      acc
+    end)
+
+    safe_reduce_ets_table(state.busy_connections, nil, fn {_key, {pid, _from}}, acc ->
+      Process.exit(pid, :normal)
+      acc
+    end)
+
+    :ets.delete(state.busy_connections)
+    :ets.delete(state.available_connections)
+    :ok
+  end
+
+  @impl true
   def handle_call(:get_stats, _from, %State{} = state) do
     stats = %{
+      total_size: state.total_size,
       pool_size: state.pool_size,
       busy_size: state.busy_size,
       available_size: state.available_size,
@@ -143,6 +211,8 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
 
   @impl true
   def handle_call({:request, %Pepper.HTTP.Request{} = request}, from, %State{} = state) do
+    start_time = System.monotonic_time(:microsecond)
+    request = %{request | time: start_time}
     connect_options = Keyword.get(request.options, :connect_options, [])
 
     key = {request.scheme, request.uri.host, request.uri.port, connect_options}
@@ -171,22 +241,9 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   end
 
   @impl true
-  def handle_cast({:connection_expired, pid}, %State{} = state) do
-    case get_available_connection_by_pid(pid, state) do
-      {[{_key, ^pid}], _continuation} ->
-        :ok = PooledConnection.schedule_stop(pid)
-        {:noreply, state}
-
-      :'$end_of_table' ->
-        case get_busy_connection_by_pid(pid, state) do
-          {[{_key, {^pid, _from}}], _continuation} ->
-            :ok = PooledConnection.schedule_stop(pid)
-            {:noreply, state}
-
-          :'$end_of_table' ->
-            {:noreply, state}
-        end
-    end
+  def handle_call({:close_all, reason}, _from, %State{} = state) do
+    %State{} = state = do_close_all(reason, state)
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -194,9 +251,9 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
     case get_busy_connection_by_pid(pid, state) do
       {[{key, {^pid, _from}} = pair], _continuation} ->
         state = remove_busy_connection(pair, state)
+        state = add_available_connection({key, pid}, state)
         case reason do
           :ok ->
-            state = add_available_connection({key, pid}, state)
             {:noreply, state}
 
           {:error, _reason} ->
@@ -206,8 +263,8 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
             {:noreply, state}
         end
 
-      :'$end_of_table' ->
-        Logger.warning "unexpected checkin", [pid: inspect(pid), reason: inspect(reason)]
+      :"$end_of_table" ->
+        Logger.warning "unexpected checkin", pid: inspect(pid), reason: inspect(reason)
         {:noreply, state}
     end
   end
@@ -215,18 +272,21 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   @impl true
   def handle_info({:EXIT, pid, reason}, %State{} = state) do
     case get_busy_connection_by_pid(pid, state) do
-      {[{_key, {^pid, _from}} = pair], _continuation} ->
+      {[{_key, {^pid, from}} = pair], _continuation} ->
         state = remove_busy_connection(pair, state)
+        state = %{state | total_size: state.total_size - 1}
+        GenServer.reply(from, {:error, reason})
         {:noreply, state}
 
-      :'$end_of_table' ->
+      :"$end_of_table" ->
         case get_available_connection_by_pid(pid, state) do
           {[{_key, ^pid} = pair], _continuation} ->
+            state = %{state | total_size: state.total_size - 1}
             state = remove_available_connection(pair, state)
             {:noreply, state}
 
-          :'$end_of_table' ->
-            Logger.error "an unknown process has terminated", [reason: inspect(reason)]
+          :"$end_of_table" ->
+            Logger.error "an unknown process has terminated", reason: inspect(reason)
             #{:stop, {:unexpected_exit, pid}, state}
             {:noreply, state}
         end
@@ -270,7 +330,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
         state = remove_available_connection(pair, state)
         {:ok, pair, state}
 
-      :'$end_of_table' ->
+      :"$end_of_table" ->
         # there are no available connections
         {:empty, state}
     end
@@ -279,9 +339,9 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   defp checkout_new_connection(key, %State{} = state) do
     if state.pool_size > calc_used_connections(state) do
       # there are new connections still available
-      case PooledConnection.start_link(self(), [lifespan: state.default_lifespan]) do
+      case PooledConnection.start_link(self(), make_ref(), [lifespan: state.default_lifespan]) do
         {:ok, pid} ->
-          {:ok, {key, pid}, state}
+          {:ok, {key, pid}, %{state | total_size: state.total_size + 1}}
 
         {:error, reason} ->
           {:error, reason, state}
@@ -294,9 +354,9 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   defp reclaim_available_connection(key, %State{} = state) do
     match_spec = [
       {
-        {:'$1', :_},
+        {:"$1", :_},
         [],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
@@ -306,7 +366,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
         state = remove_available_connection(pair, state)
         {:ok, {key, pid}, state}
 
-      :'$end_of_table' ->
+      :"$end_of_table" ->
         {:empty, state}
     end
   end
@@ -318,11 +378,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def get_available_connection_by_pid(pid, %State{} = state) do
     match_spec = [
       {
-        {:_, :'$1'},
+        {:_, :"$1"},
         [
-          {:==, :'$1', {:const, pid}}
+          {:==, :"$1", {:const, pid}}
         ],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
@@ -332,11 +392,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def get_available_connection_by_key(key, %State{} = state) do
     match_spec = [
       {
-        {:'$1', :_},
+        {:"$1", :_},
         [
-          {:==, :'$1', {:const, key}}
+          {:==, :"$1", {:const, key}}
         ],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
@@ -346,11 +406,11 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def get_busy_connection_by_pid(pid, %State{} = state) do
     match_spec = [
       {
-        {:_, {:'$1', :_}},
+        {:_, {:"$1", :_}},
         [
-          {:==, :'$1', {:const, pid}}
+          {:==, :"$1", {:const, pid}}
         ],
-        [:'$_']
+        [:"$_"]
       }
     ]
 
@@ -375,5 +435,51 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   defp add_available_connection(pair, %State{} = state) do
     true = :ets.insert(state.available_connections, pair)
     %{state | available_size: state.available_size + 1}
+  end
+
+  defp do_close_all(reason, %State{} = state) do
+    state = close_all_busy_connections(reason, state)
+    state = close_all_available_connections(reason, state)
+    state
+  end
+
+  defp close_all_busy_connections(reason, state) do
+    reduce_ets_table(state.busy_connections, state, fn {_key, {pid, _from}}, state ->
+      :ok = PooledConnection.schedule_stop(pid, reason)
+      state
+    end)
+  end
+
+  defp close_all_available_connections(reason, state) do
+    reduce_ets_table(state.available_connections, state, fn {_key, pid}, state ->
+      :ok = PooledConnection.schedule_stop(pid, reason)
+      state
+    end)
+  end
+
+  defp reduce_ets_table(table, acc, callback) do
+    true = :ets.safe_fixtable(table, true)
+    try do
+      do_reduce_ets_table(:ets.first(table), table, acc, callback)
+    after
+      true = :ets.safe_fixtable(table, false)
+    end
+  end
+
+  defp do_reduce_ets_table(:"$end_of_table", _table, acc, _callback) do
+    acc
+  end
+
+  defp do_reduce_ets_table(key, table, acc, callback) do
+    acc =
+      case :ets.lookup(table, key) do
+        [] ->
+          acc
+
+        [{^key, _value} = pair] ->
+          callback.(pair, acc)
+      end
+
+    do_reduce_ets_table(:ets.next(table, key), table, acc, callback)
   end
 end

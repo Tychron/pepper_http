@@ -9,25 +9,56 @@ on:
 permissions:
   contents: read
 
+env:
+  MIX_ENV: test
+
 jobs:
-  build:
-
-    name: Build and test
-    runs-on: ubuntu-20
-
+  test:
+    name: OTP ${{ matrix.otp }} / Elixir ${{ matrix.elixir }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Limited to the OTP majors requested here and only upstream-supported
+        # Elixir/OTP pairs from the official Elixir docs compatibility table.
+        include:
+          - otp: "27"
+            elixir: "1.17"
+          - otp: "27"
+            elixir: "1.18"
+          - otp: "27"
+            elixir: "1.19"
+          - otp: "28"
+            elixir: "1.19"
+          - otp: "27"
+            elixir: "1.20"
+          - otp: "28"
+            elixir: "1.20"
+          - otp: "29"
+            elixir: "1.20"
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Elixir
-      uses: erlef/setup-beam@988e02bfe678367a02564f65ca2e37726dc0268f
+    - uses: actions/checkout@v4
+    - name: Set up Erlang/OTP and Elixir
+      id: setup-beam
+      uses: erlef/setup-beam@v1
       with:
-        elixir-version: '1.13.3' # Define the elixir version [required]
-        otp-version: '24.1' # Define the OTP version [required]
-    - name: Restore dependencies cache
-      uses: actions/cache@v3
+        otp-version: ${{ matrix.otp }}
+        elixir-version: ${{ matrix.elixir }}
+        version-type: loose
+    - name: Restore dependencies and build cache
+      uses: actions/cache@v4
       with:
-        path: deps
-        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-        restore-keys: ${{ runner.os }}-mix-
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-mix-${{ hashFiles('mix.exs', 'mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ steps.setup-beam.outputs.otp-version }}-${{ steps.setup-beam.outputs.elixir-version }}-mix-
+    - name: Install Hex
+      run: mix local.hex --force
+    - name: Install Rebar
+      run: mix local.rebar --force
     - name: Install dependencies
       run: mix deps.get
     - name: Run tests
