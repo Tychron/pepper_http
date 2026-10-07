@@ -8,6 +8,60 @@ defmodule Pepper.HTTP.ConnectionManager.Utils do
 
   @type conn :: Mint.Core.Conn.conn()
 
+  @type conn_key :: {atom(), String.t(), integer(), String.t() | nil, Keyword.t()}
+
+  @spec connection_key(Request.t()) :: conn_key()
+  def connection_key(%Request{} = request) do
+    {request.scheme, request.uri.host, request.uri.port, Keyword.get(request.options, :unix_socket),
+     Keyword.get(request.options, :connect_options, [])}
+  end
+
+  @spec connect(Request.t(), mode()) :: {:ok, conn()} | {:error, term()}
+  def connect(%Request{} = request, mode) do
+    options =
+      Keyword.merge(
+        [mode: mode, transport_opts: [timeout: request.options[:connect_timeout]]],
+        Keyword.get(request.options, :connect_options, [])
+      )
+
+    case Keyword.get(request.options, :unix_socket) do
+      nil ->
+        Mint.HTTP.connect(request.scheme, request.uri.host, request.uri.port, options)
+
+      path ->
+        if Keyword.has_key?(options, :proxy) do
+          raise ArgumentError, ":unix_socket cannot be combined with a proxy"
+        end
+
+        options = Keyword.put_new(options, :hostname, request.uri.host)
+
+        case Mint.HTTP.connect(request.scheme, {:local, path}, 0, options) do
+          {:ok, conn} ->
+            {:ok, restore_http_port(conn, request.uri.port)}
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
+  end
+
+  # Unix sockets require transport port 0. Mint also uses that port for HTTP
+  # identity, so restore the logical URL port before sending any requests.
+  defp restore_http_port(%Mint.HTTP1{} = conn, port) do
+    %{conn | port: port}
+  end
+
+  defp restore_http_port(%Mint.HTTP2{} = conn, port) do
+    authority =
+      if URI.default_port(conn.scheme) == port do
+        conn.hostname
+      else
+        "#{conn.hostname}:#{port}"
+      end
+
+    %{conn | port: port, authority: authority}
+  end
+
   @spec timespan(function(), System.time_unit()) ::
     {{start_at::integer(), end_at::integer()}, result::any()}
   def timespan(callback, unit \\ :microsecond) when is_function(callback, 0) do

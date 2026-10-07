@@ -7,7 +7,7 @@ An HTTP Client library built around [Mint](https://github.com/elixir-mint/mint),
 ```elixir
 {:ok, resp} = Pepper.HTTP.Client.request(method, url, headers, body, options)
 
-{:ok, resp} = Pepper.HTTP.Client.request(:get, "https://example.com", [{"user-agent", "pepper-http/0.6.0"}], nil, [])
+{:ok, resp} = Pepper.HTTP.Client.request(:get, "https://example.com", [{"user-agent", "pepper-http/0.9.0"}], nil, [])
 
 resp.status_code # => 200
 resp.headers # => [{"content-type", "text/plain"}, {"content-length", "12"}]

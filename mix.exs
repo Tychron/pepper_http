@@ -4,7 +4,7 @@ defmodule Pepper.HTTP.MixProject do
   def project do
     [
       app: :pepper_http,
-      version: "0.7.0",
+      version: "0.9.0",
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       elixirc_options: [

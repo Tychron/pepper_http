@@ -1,3 +1,7 @@
+# 0.9.0
+
+* Added the `unix_socket` request option to both clients and connection managers.
+
 # 0.8.0
 
 ## Breaking Changes

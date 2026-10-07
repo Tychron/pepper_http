@@ -51,8 +51,9 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   alias Pepper.HTTP.ConnectError
 
   import Pepper.HTTP.Utils, only: [safe_reduce_ets_table: 3]
+  import Pepper.HTTP.ConnectionManager.Utils, only: [connection_key: 1]
 
-  @type conn_key :: {scheme::atom(), host::String.t(), port::integer(), Keyword.t()}
+  @type conn_key :: Pepper.HTTP.ConnectionManager.Utils.conn_key()
 
   @type connection_id :: GenServer.server()
 
@@ -213,9 +214,7 @@ defmodule Pepper.HTTP.ConnectionManager.Pooled do
   def handle_call({:request, %Pepper.HTTP.Request{} = request}, from, %State{} = state) do
     start_time = System.monotonic_time(:microsecond)
     request = %{request | time: start_time}
-    connect_options = Keyword.get(request.options, :connect_options, [])
-
-    key = {request.scheme, request.uri.host, request.uri.port, connect_options}
+    key = connection_key(request)
     case checkout_connection(key, state) do
       {:empty, state} ->
         ex = %CheckoutError{

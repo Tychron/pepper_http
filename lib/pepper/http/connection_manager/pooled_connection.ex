@@ -6,9 +6,7 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
       lifespan: nil,
       pool_pid: nil,
       conn: nil,
-      scheme: nil,
-      host: nil,
-      port: nil,
+      connection_key: nil,
       status: :ok,
       just_reconnected: false,
       #
@@ -284,10 +282,8 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
           state
 
         Mint.HTTP.open?(state.conn) ->
-          # ensure that connection's scheme, host and port matches the request
-          if request.scheme == state.scheme and
-             request.uri.host == state.host and
-             request.uri.port == state.port do
+          # Reclaimed workers must reconnect when the destination or options change.
+          if connection_key(request) == state.connection_key do
             # it matches, so return the state as is
             state
           else
@@ -302,25 +298,12 @@ defmodule Pepper.HTTP.ConnectionManager.PooledConnection do
     if state.conn do
       {:ok, state}
     else
-      req_options = request.options
-      connect_options = Keyword.merge(
-        [
-          mode: :active,
-          transport_opts: [
-            timeout: req_options[:connect_timeout],
-          ],
-        ],
-        Keyword.get(request.options, :connect_options, [])
-      )
-
-      case Mint.HTTP.connect(request.scheme, request.uri.host, request.uri.port, connect_options) do
+      case connect(request, :active) do
         {:ok, conn} ->
           {:ok, %{
             state
             | conn: conn,
-              scheme: request.scheme,
-              host: request.uri.host,
-              port: request.uri.port,
+              connection_key: connection_key(request),
               just_reconnected: true
             }
           }
