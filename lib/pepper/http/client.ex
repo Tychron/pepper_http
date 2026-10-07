@@ -5,6 +5,10 @@ defmodule Pepper.HTTP.Client do
   This is a simple base client and doesn't handle any special content-types on request or response.
 
   Use the Pepper.HTTP.ContentClient instead if you need content-type handling.
+
+  Pass `unix_socket: "/path/to/service.sock"` to connect through a Unix domain socket.
+  The URL still specifies the HTTP host, port, path, and query. Both one-off and
+  pooled connections support this option.
   """
   require Logger
 
@@ -40,6 +44,7 @@ defmodule Pepper.HTTP.Client do
                         | {:response_body_handler_options, any()}
                         | {:attempts, non_neg_integer()}
                         | {:connect_options, [connect_option()]}
+                        | {:unix_socket, String.t() | nil}
 
   @type uri_or_url :: URI.t() | String.t()
 
@@ -200,8 +205,17 @@ defmodule Pepper.HTTP.Client do
     :recv_size,
     :recv_timeout,
     :connect_timeout,
-    :connect_options
+    :connect_options,
+    :unix_socket
   ]
+
+  defp validate_options!([{:unix_socket, path} = pair | rest], acc) do
+    unless is_nil(path) or (is_binary(path) and path != "" and not String.contains?(path, <<0>>)) do
+      raise ArgumentError, ":unix_socket must be a non-empty path string or nil"
+    end
+
+    validate_options!(rest, [pair | acc])
+  end
 
   defp validate_options!(
     [{key, _} = pair | rest], acc

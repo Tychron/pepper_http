@@ -18,18 +18,7 @@ defmodule Pepper.HTTP.ConnectionManager.OneOff do
 
   @spec request(term(), Request.t()) :: {:ok, Response.t()} | {:error, error_reasons()}
   def request(_id, %Request{} = request) do
-    connect_options =
-      Keyword.merge(
-        [
-          mode: :passive,
-          transport_opts: [
-            timeout: request.options[:connect_timeout],
-          ],
-        ],
-        Keyword.get(request.options, :connect_options, [])
-      )
-
-    case Mint.HTTP.connect(request.scheme, request.uri.host, request.uri.port, connect_options) do
+    case connect(request, :passive) do
       {:ok, conn} ->
         {request, is_stream?, body} =
           determine_if_body_should_stream(conn, request)

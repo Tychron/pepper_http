@@ -45,6 +45,33 @@ case result do
 end
 ```
 
+### Unix Domain Sockets
+
+Both clients accept `unix_socket: "/path/to/service.sock"` with either connection manager:
+
+```elixir
+Pepper.HTTP.ContentClient.get(
+  "http://localhost/api/status",
+  [],
+  [],
+  unix_socket: "/tmp/service.sock"
+)
+```
+
+Pepper connects to the socket file instead of resolving the URL's host or opening a TCP
+connection. The URL still supplies the HTTP scheme, host, port, request path, and query.
+For example, the request above sends `GET /api/status` with `Host: localhost`.
+HTTP/1 requests preserve an explicitly supplied `Host` header.
+
+`http://` sends plain HTTP over the socket; `https://` uses TLS over the socket, with the
+URL's hostname used for certificate verification and SNI unless `connect_options[:hostname]`
+overrides it. Existing `connect_options` and timeouts apply. Proxy options cannot be
+combined with `unix_socket`.
+
+The socket path must be a non-empty string. Omit `unix_socket`, or set it to `nil`, to use
+the usual TCP connection. Unix sockets require support from the operating system.
+Pooled connections are kept separate by socket path, URL destination, and connection options.
+
 ### ContentClient Usage
 
 If you are in need of something more featured, Pepper provides a ContentClient which can handle most common request body types and response bodies.
