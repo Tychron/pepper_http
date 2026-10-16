@@ -8,11 +8,11 @@ defmodule Pepper.HTTP.BodyDecoder do
     type =
       case accepted_content_type do
         nil ->
-          # no content-type
+          # no content-type, therefore unk(nown)
           :unk
 
         :unaccepted ->
-          # mismatched content-type and accept, return unk(nown)
+          # mismatched content-type and accept, return unaccepted
           :unaccepted
 
         accepted_content_type ->
