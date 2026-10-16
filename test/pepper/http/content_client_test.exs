@@ -64,7 +64,7 @@ defmodule Pepper.HTTP.ContentClientTest do
         end)
       end)
 
-      Enum.each([{:post, "POST"}, {:patch, "PATCH"}, {:put, "PUT"}], fn {method, method_string} ->
+      Enum.each([{:query, "QUERY"}, {:post, "POST"}, {:patch, "PATCH"}, {:put, "PUT"}], fn {method, method_string} ->
         describe "request/6 [with_connection_pool:#{with_connection_pool}, protocol:#{protocol}, method:#{method}]" do
           @describetag with_connection_pool: with_connection_pool, protocol: to_string(protocol), method: to_string(method)
 

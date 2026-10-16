@@ -80,6 +80,10 @@ defmodule Pepper.HTTP.ContentClient do
     request(:put, url, query_params, headers, body, options)
   end
 
+  def query(url, query_params, headers, body, options \\ []) do
+    request(:query, url, query_params, headers, body, options)
+  end
+
   def delete(url, query_params \\ [], headers \\ [], options \\ []) do
     request(:delete, url, query_params, headers, nil, options)
   end

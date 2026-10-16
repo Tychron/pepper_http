@@ -18,6 +18,8 @@ defmodule Pepper.HTTP.Utils do
                      | :post
                      | :put
                      | :trace
+                     # RFC 10008
+                     | :query
 
   @type ets_reducer :: (obj::tuple(), acc::any() -> acc::any())
 
@@ -229,6 +231,7 @@ defmodule Pepper.HTTP.Utils do
   def normalize_http_method(:post), do: "POST"
   def normalize_http_method(:put), do: "PUT"
   def normalize_http_method(:trace), do: "TRACE"
+  def normalize_http_method(:query), do: "QUERY"
 
   def normalize_http_method(method) when is_binary(method) do
     String.upcase(method)
